@@ -39,7 +39,7 @@
   <div class="wrap">
     <div>
       <h1>A quiet home screen for the fridge door</h1>
-      <p class="lede">{{NAME}} is independent firmware for the Seeed reTerminal Sticky, the 3.97-inch magnetic e-paper board. It gives the board a home screen of apps you read in passing: the time, the weather, your next event, the shopping list, a quote for the day.</p>
+      <p class="lede">{{NAME}} is independent firmware for the <a href="https://www.seeedstudio.com/sticky/">Seeed reTerminal Sticky</a>, the 3.97-inch magnetic e-paper board. It gives the board a home screen of apps you read in passing: the time, the weather, your next event, the shopping list, a quote for the day.</p>
       <p>E-paper keeps its picture without power, so the screen is always showing something useful and never asks for your attention.</p>
       <div class="actions">
         <a class="button" href="#install">Install {{NAME}}</a>
@@ -52,7 +52,7 @@
       <div class="screen">
         <img src="shots/home-landscape.png" width="800" height="480" fetchpriority="high"
              alt="{{NAME}} on the board, held in landscape"
-             onerror="this.onerror=null;this.src='shots/timer-landscape.png'">
+             data-fallback="shots/timer-landscape.png">
       </div>
     </figure>
   </div>
@@ -90,7 +90,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Home, held upright</div>
             <img src="shots/home-portrait.png" width="480" height="800" alt="Home held upright: the time, the weather and the next event above a grid of app icons, three across, ending with Quote, Recipes and Games"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Upright: three icons across</figcaption>
         </figure>
@@ -98,7 +98,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Home, landscape</div>
             <img src="shots/home-landscape.png" width="800" height="480" alt="Home in landscape: the widget above two rows of four app icons"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Landscape: four across</figcaption>
         </figure>
@@ -116,7 +116,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Quick settings</div>
             <img src="shots/quick.png" width="480" height="800" alt="Quick settings: a row of tiles for rotation, sound, WiFi, clean screen, sleep and all settings"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Swipe down from the status bar</figcaption>
         </figure>
@@ -164,7 +164,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Calendar, Now and Next</div>
             <img src="shots/calendar-day.png" width="480" height="800" alt="Calendar: a Now and Next card with a countdown, above the coming events"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Now and Next, with a countdown</figcaption>
         </figure>
@@ -172,7 +172,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Calendar, the week</div>
             <img src="shots/calendar-week.png" width="800" height="480" alt="Calendar: a strip of the week with dots on busy days, and the events under a heading for each day"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>The week at a glance</figcaption>
         </figure>
@@ -239,7 +239,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Notes</div>
             <img src="shots/notes.png" width="480" height="800" alt="Notes: a list of tasks with tick boxes and a microphone button"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Tasks with tick boxes</figcaption>
         </figure>
@@ -247,7 +247,7 @@
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>On-screen keyboard</div>
             <img src="shots/keyboard.png" width="480" height="800" alt="The on-screen keyboard, typing a new note"
-                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+                 data-slot>
           </div>
           <figcaption>Or type it</figcaption>
         </figure>
@@ -517,7 +517,7 @@
   <div class="wrap split">
     <div>
       <h2 id="hw-h">Made for the reTerminal Sticky</h2>
-      <p class="intro" style="margin-top:1.5rem">{{NAME}} runs on Seeed’s reTerminal Sticky and uses nearly every part of it.</p>
+      <p class="intro intro-gap">{{NAME}} runs on Seeed’s reTerminal Sticky and uses nearly every part of it. <a href="https://www.seeedstudio.com/sticky/">Get the board from Seeed Studio</a>.</p>
     </div>
     <dl class="spec">
       <dt>Screen</dt><dd>3.97-inch e-paper, 800 × 480, black and white with four greys for photos</dd>
@@ -569,11 +569,12 @@
   <div class="wrap">
     <p><span class="brand">{{NAME}}</span></p>
     <div>
-      <p>An independent, open-source firmware for the Seeed reTerminal Sticky. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
+      <p>An independent, open-source firmware for the <a href="https://www.seeedstudio.com/sticky/">Seeed reTerminal Sticky</a>. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
       <p>Every screenshot is the board’s own picture, captured as drawn, with demo data. The photo is Ansel Adams’ <cite>The Tetons and the Snake River</cite> (1942), public domain.</p>
       <p><a href="https://github.com/ovidiul/sticky-os">GitHub</a> · <a href="https://github.com/ovidiul/sticky-os/issues">Issues</a> · <a href="https://github.com/ovidiul/sticky-os/blob/main/LICENSE">MIT licence</a></p>
     </div>
   </div>
 </footer>
+<script src="site.js" defer></script>
 </body>
 </html>

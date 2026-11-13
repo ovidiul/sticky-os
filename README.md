@@ -1,6 +1,6 @@
 # Sticky OS
 
-Sticky OS is a firmware for the Seeed reTerminal Sticky, the 3.97" magnetic
+Sticky OS is a firmware for the [Seeed reTerminal Sticky](https://www.seeedstudio.com/sticky/), the 3.97" magnetic
 touch e-paper board. It turns the board into a small app device: a home
 screen of app icons, a status bar, quick settings, and twelve apps (clock,
 weather, calendar, notes with voice, timer, photos, quote of the day,
@@ -13,6 +13,7 @@ firmware.
 > made by or affiliated with Seeed Studio.
 
 Website and setup app: **<https://sticky-os.space.fast/>**
+The board itself: **<https://www.seeedstudio.com/sticky/>** (Seeed Studio)
 
 <p>
   <img src="site/src/shots/home-landscape.png" width="400" alt="The home screen in landscape: the time, the weather, the next event, and app icons">
