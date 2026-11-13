@@ -14,6 +14,12 @@ Bluetooth (`bleprov.*`): service `edb50001-3985-44d0-a3dd-fd2767d3a6dd`, info
 notification one frame (`provframe.h`), encrypted and authenticated (LE
 Secure Connections, passkey shown on the screen).
 
+A key with a fixed set of values lists them as `options`: `device.language`
+(the board's language) has `["en","es","pt","fr","de","it","ru","tr","pl","ro"]`,
+and `set` refuses anything else (`device.language: not a valid value`). An
+older board has no `device.language`; the setup app then shows no
+Language step.
+
 `keys` never returns a secret's value. Two secret keys say a little about
 theirs: `wifi.networks` lists its `ssids`, and `calendar.ics` (the calendar
 links) its `labels`, one per link (`""` for none) with `max_items` (3); the

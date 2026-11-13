@@ -44,10 +44,33 @@ The board itself: **<https://www.seeedstudio.com/sticky/>** (Seeed Studio)
 | Recipes | Say or type a dish; the AI writes the recipe (needs an OpenAI key) |
 | Games | 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, X and O |
 | Claude | Your weekly Claude Code usage, from your own MQTT broker |
-| Settings | Rotation, sound, sleep, WiFi, which apps show, software update |
+| Settings | Language, rotation, sound, sleep, WiFi, which apps show, software update |
 | About | Firmware, memory, network, battery, sensors |
 
 Everything is described in the [guide](docs/guide.md).
+
+## Languages
+
+The board speaks ten languages: English, Español, Português, Français,
+Deutsch, Italiano, Русский, Türkçe, Polski and Română. Pick one in the setup
+app (its first step) or on the board in **Settings → Language**. It changes
+every word on the screens, the day and month names, the decimal comma, the
+on-screen keyboard (a page of the language's accented letters, or the
+Russian layout with a globe key for the Latin one), and the language the AI
+answers in (notes, recipes, Quiz and Adventure) and listens for (speech to
+text gets the language as a hint).
+
+Text from the internet shows with its accents too: calendar events, notes,
+recipes, quotes and the AI's answers in any of these languages, Latin or
+Cyrillic. The fonts are Adafruit GFX's FreeSans and FreeSerif with a second
+table of 340 letters each (Latin-1, Latin Extended-A, Romanian's ș ț,
+Cyrillic, some punctuation), so a character outside them (Chinese, Arabic,
+emoji) still becomes an ASCII stand-in or nothing.
+
+Still in English for now: the setup app, the built-in quiz questions, the
+built-in adventure story and the offline quotes. Adding a language, or a
+word, is described in [CONTRIBUTING.md](CONTRIBUTING.md#languages);
+corrections from native speakers are very welcome.
 
 ## Install
 

@@ -66,6 +66,20 @@
 #include <Fonts/FreeSerifItalic24pt7b.h>
 #include "src/fonts/FreeSerifItalic32pt7b.h"  // the Quote app's full screen
 #include "src/fonts/FreeSerifItalic40pt7b.h"
+// The letters beyond ASCII for each of them (glyphs.h).
+#include "src/fonts/FreeSans9ptExt.h"
+#include "src/fonts/FreeSans12ptExt.h"
+#include "src/fonts/FreeSans18ptExt.h"
+#include "src/fonts/FreeSansBold9ptExt.h"
+#include "src/fonts/FreeSansBold12ptExt.h"
+#include "src/fonts/FreeSansBold18ptExt.h"
+#include "src/fonts/FreeSansBold24ptExt.h"
+#include "src/fonts/FreeSerifItalic9ptExt.h"
+#include "src/fonts/FreeSerifItalic12ptExt.h"
+#include "src/fonts/FreeSerifItalic18ptExt.h"
+#include "src/fonts/FreeSerifItalic24ptExt.h"
+#include "src/fonts/FreeSerifItalic32ptExt.h"
+#include "src/fonts/FreeSerifItalic40ptExt.h"
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -81,6 +95,8 @@
 #include "bleprov.h"
 #include "config.h"
 #include "games.h"
+#include "glyphs.h"
+#include "i18n.h"
 #include "calendar.h"
 #include "influx.h"
 #include "json.h"
@@ -116,12 +132,83 @@ static const int BODY_Y = BAR_H;
 #define TALL (H > W)
 static const uint16_t INK = 0, PAPER = 1;  // the panel's 1 bpp format: 1 is white
 
-static GFXcanvas1 *canvas;
+// The canvas prints UTF-8: ASCII from the font itself, the other letters
+// from its extra table (glyphs.h), anything else as an ASCII stand-in.
+static const struct { const GFXfont *base; const ExtFont *ext; } FONT_EXT[] = {
+    {&FreeSans9pt7b, &FreeSans9ptExt},         {&FreeSans12pt7b, &FreeSans12ptExt},
+    {&FreeSans18pt7b, &FreeSans18ptExt},       {&FreeSansBold9pt7b, &FreeSansBold9ptExt},
+    {&FreeSansBold12pt7b, &FreeSansBold12ptExt}, {&FreeSansBold18pt7b, &FreeSansBold18ptExt},
+    {&FreeSansBold24pt7b, &FreeSansBold24ptExt}, {&FreeSerifItalic9pt7b, &FreeSerifItalic9ptExt},
+    {&FreeSerifItalic12pt7b, &FreeSerifItalic12ptExt}, {&FreeSerifItalic18pt7b, &FreeSerifItalic18ptExt},
+    {&FreeSerifItalic24pt7b, &FreeSerifItalic24ptExt}, {&FreeSerifItalic32pt7b, &FreeSerifItalic32ptExt},
+    {&FreeSerifItalic40pt7b, &FreeSerifItalic40ptExt},
+};
+
+class TextCanvas : public GFXcanvas1 {
+ public:
+  TextCanvas(uint16_t w, uint16_t h) : GFXcanvas1(w, h) {}
+  static const ExtFont *extFor(const GFXfont *f) {
+    for (auto &e : FONT_EXT)
+      if (e.base == f) return e.ext;
+    return nullptr;
+  }
+  const GFXfont *font() const { return gfxFont; }
+  size_t write(uint8_t c) override {
+    if (pending == 0 && c < 0x80) return GFXcanvas1::write(c);
+    if (c >= 0xC0) {  // a new character: 2, 3 or 4 bytes
+      pending = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1;
+      cp = c & (c >= 0xF0 ? 0x07 : c >= 0xE0 ? 0x0F : 0x1F);
+      return 1;
+    }
+    if (c < 0x80 || !pending) {  // a broken sequence: drop it, keep the byte if it's ASCII
+      pending = 0;
+      return c < 0x80 ? GFXcanvas1::write(c) : 1;
+    }
+    cp = cp << 6 | (c & 0x3F);
+    if (--pending == 0) drawCodePoint(cp);
+    return 1;
+  }
+
+ private:
+  uint32_t cp = 0;
+  uint8_t pending = 0;
+  void drawCodePoint(uint32_t code) {
+    const ExtFont *ext = gfxFont ? extFor(gfxFont) : nullptr;
+    int at = ext ? extIndex(code) : -1;
+    if (at < 0) {  // not in the font: a look-alike, or nothing
+      char two[2];
+      const char *f = foldCodePoint(code, two);
+      for (; f && *f; f++) GFXcanvas1::write(*f);
+      return;
+    }
+    const ExtGlyph &g = ext->glyph[at];
+    int xo = g.xOffset;
+    if (wrap && g.width && cursor_x + textsize_x * (xo + g.width) > _width) {
+      cursor_x = 0;
+      cursor_y += (int16_t)textsize_y * gfxFont->yAdvance;
+    }
+    const uint8_t *bits = ext->bitmap + g.bitmapOffset;
+    uint8_t byte = 0, bit = 0;
+    startWrite();
+    for (int yy = 0; yy < g.height; yy++)
+      for (int xx = 0; xx < g.width; xx++) {
+        if (!(bit++ & 7)) byte = *bits++;
+        if (byte & 0x80) {
+          if (textsize_x == 1 && textsize_y == 1) writePixel(cursor_x + xo + xx, cursor_y + g.yOffset + yy, textcolor);
+          else writeFillRect(cursor_x + (xo + xx) * textsize_x, cursor_y + (g.yOffset + yy) * textsize_y, textsize_x, textsize_y, textcolor);
+        }
+        byte <<= 1;
+      }
+    endWrite();
+    cursor_x += g.xAdvance * (int16_t)textsize_x;
+  }
+};
+static TextCanvas *canvas;
 static uint8_t *rotated;   // what goes to the panel: the canvas turned 180 degrees
 static uint8_t *grey;      // a four-grey frame, 2 bits a pixel, for photos
 static uint8_t *greyOut;   // the same, turned 180 degrees
 static bool greyShown;     // the panel holds greys: the next black-and-white draw must be a full one
-static int partials;       // partial refreshes since the last full one
+static int partials;       // ghosting since the last full refresh, in fifths of a partial (see show())
 static seeed_epaper_panel_handle_t panel;
 static const char *panelName = "none";
 static const seeed_epaper_area_t FULL = {0, 0, NW, NH};
@@ -148,8 +235,12 @@ static Readings now;
 // where it goes on the home screen.
 enum App { APP_CLOCK, APP_WEATHER, APP_CALENDAR, APP_NOTES, APP_TIMER, APP_PHOTOS, APP_CLAUDE, APP_SETTINGS, APP_ABOUT,
            APP_QUOTE, APP_RECIPES, APP_GAMES, APP_COUNT };
+// English, for the log; the screens use appName().
 static const char *const APP_NAMES[] = {"Clock", "Weather", "Calendar", "Notes", "Timer", "Photos", "Claude", "Settings", "About",
                                         "Quote", "Recipes", "Games"};
+static const StrId APP_LABELS[] = {S_APP_CLOCK, S_APP_WEATHER, S_APP_CALENDAR, S_APP_NOTES, S_APP_TIMER, S_APP_PHOTOS,
+                                   S_APP_CLAUDE, S_APP_SETTINGS, S_APP_ABOUT, S_APP_QUOTE, S_APP_RECIPES, S_APP_GAMES};
+#define appName(a) T(APP_LABELS[a])  // a macro: Arduino puts its prototypes above the first function
 static const int APP_ORDER[APP_COUNT] = {APP_CLOCK, APP_WEATHER, APP_CALENDAR, APP_NOTES, APP_TIMER, APP_PHOTOS,
                                          APP_QUOTE, APP_RECIPES, APP_GAMES, APP_CLAUDE, APP_SETTINGS, APP_ABOUT};
 
@@ -159,7 +250,7 @@ enum Screen { SCREEN_HOME, SCREEN_APP, SCREEN_QUICK, SCREEN_WELCOME };
 
 // Settings, like Android's: a main list and a page for each choice. WiFi
 // has three: the saved networks, a scan to add one, and one saved network.
-enum SettingsPage { SP_MAIN, SP_ROTATION, SP_TEMPERATURE, SP_SLEEP, SP_APPS, SP_WIFI, SP_WIFI_SCAN, SP_WIFI_NET, SP_UPDATE };
+enum SettingsPage { SP_MAIN, SP_ROTATION, SP_TEMPERATURE, SP_SLEEP, SP_APPS, SP_WIFI, SP_WIFI_SCAN, SP_WIFI_NET, SP_UPDATE, SP_LANGUAGE };
 
 // One row of a list screen (Settings, About). Long lists turn a page at a time.
 enum RowKind { ROW_HEADER, ROW_LINK, ROW_SWITCH, ROW_RADIO, ROW_INFO, ROW_BACK };
@@ -176,7 +267,8 @@ struct HomeLayout {
 
 // Settings, kept in the board's flash.
 enum Turn { TURN_AUTO, TURN_LANDSCAPE, TURN_LANDSCAPE_FLIPPED, TURN_PORTRAIT, TURN_PORTRAIT_FLIPPED, TURN_COUNT };
-static const char *const TURN_NAMES[] = {"Automatic", "Landscape", "Landscape, flipped", "Portrait", "Portrait, flipped"};
+static const char *const TURN_NAMES[] = {"Automatic", "Landscape", "Landscape, flipped", "Portrait", "Portrait, flipped"};  // the log's
+static const StrId TURN_LABELS[] = {S_TURN_AUTO, S_TURN_LANDSCAPE, S_TURN_LANDSCAPE_FLIPPED, S_TURN_PORTRAIT, S_TURN_PORTRAIT_FLIPPED};
 static const int SLEEP_MINUTES[] = {0, 5, 30};
 struct Settings {
   int turn = TURN_AUTO;
@@ -210,7 +302,8 @@ struct Keyboard {
   String text;            // what has been typed
   String label, hint;     // the line above the field, and what an empty field says
   String note;            // a line from the microphone: listening, or why it failed
-  int layer = 0;          // 0 letters, 1 digits and symbols
+  int layer = 0;          // 0 letters, 1 digits and symbols, 2 more symbols, 3 the language's accented letters
+  bool alt = false;       // Russian: the Latin letters instead of the Cyrillic ones (the globe key)
   int shift = 0;          // 0 off, 1 the next letter, 2 caps lock
   uint32_t shiftAt = 0;   // the last tap on shift, for a double tap
   int maxLen = 120;
@@ -218,8 +311,10 @@ struct Keyboard {
   bool masked = false;    // a password: dots, no capitals by itself, no microphone
   bool reveal = false;    // masked, but shown for now (the Show key)
   int keysTop = 0, labelTop = -1;  // where it was last drawn, for taps; -1: no label row
+  int cancelX = 0, showX = 0;      // where Cancel and Show / Hide start (they're as wide as their words)
 };
-struct KeyBox { int16_t x, y, w, h; int code; };
+struct KeyBox { int16_t x, y, w, h; uint16_t code; };  // code: a KeyCode, or the character (a code point)
+struct KbLetters { const char *rows[3]; const char *accents; };  // a language's letters (keyboardKeys)
 static Keyboard noteKb;
 
 // Calendar: what fills the screen (the agenda or one event), and what a tap can land on.
@@ -251,7 +346,7 @@ static struct { int16_t x, y, w, h; long date; } weatherDayHit[6];  // where Wea
 static int weatherDayHits;
 static void quoteReset();         // the Quote app shows the day's quote again
 static int calendarPage, notesPage;
-static String notesSay = "Tap the mic to speak, tap again to stop.";  // the AI's last line, or a hint
+static String notesSay;  // the AI's last line; empty: the hint (S_NOTES_HINT)
 static uint32_t timerRingsAt;           // millis() when the running timer rings
 static bool timerRunning;
 static int timerMinutes = 5;        // the length last chosen
@@ -377,13 +472,26 @@ static void rotateCanvas() {
   for (size_t i = 0; i < n; i++) rotated[n - 1 - i] = reverseBits(src[i]);
 }
 
+// The Listening / Thinking card over the screen (drawn last, by show()).
+static const char *listenHint;  // set while the microphone records: the card's small line
+static int voiceCardDemo;       // serial "listen show|think|off": the card on its own, for screenshots
+static void drawVoiceCard();
+
 // A full refresh flashes and leaves no ghosts; a partial one is quick.
+// Ghosting budget, in fifths of a partial refresh: one the user caused
+// (touch, buttons, in the last minute) costs 5, a timed one with nobody
+// around (the clock's minute, the status bar) costs 1. A full refresh, which
+// flashes, comes at 60: after 12 partials while in use, as before, but only
+// about once an hour on a board left on USB updating its clock, instead of
+// every 12 minutes.
 static void show(bool full) {
   if (!panel) return;
-  if (greyShown || partials >= 12) full = true;  // partial refreshes leave ghosts that add up
+  bool idle = (int32_t)(millis() - lastActivity) > 60000;
+  if (greyShown || partials + (idle ? 1 : 5) > 60) full = true;  // partial refreshes leave ghosts that add up
   greyShown = false;
-  partials = full ? 0 : partials + 1;
+  partials = full ? 0 : partials + (idle ? 1 : 5);
   (full ? fullRefreshes : partialRefreshes)++;
+  drawVoiceCard();
   uint32_t t = millis();
   rotateCanvas();
   esp_err_t err;
@@ -441,7 +549,7 @@ static void showGrey(const uint8_t *photo, int top) {
 }
 
 static bool screenBegin() {
-  canvas = new GFXcanvas1(NW, NH);
+  canvas = new TextCanvas(NW, NH);
   rotated = (uint8_t *)heap_caps_malloc(NW / 8 * NH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   grey = (uint8_t *)heap_caps_malloc(NW / 4 * NH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   greyOut = (uint8_t *)heap_caps_malloc(NW / 4 * NH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -681,12 +789,34 @@ static int wantedRotation() {
 
 // ---------------------------------------------------------------- text and icons
 
+// Where the ink of `s` ends, from x = 0 (as Adafruit's getTextBounds: x + w),
+// UTF-8 aware: the extra letters measured from their own table.
 static int textW(const GFXfont *font, const char *s) {
-  int16_t x, y;
-  uint16_t w, h;
-  canvas->setFont(font);
-  canvas->getTextBounds(s, 0, 0, &x, &y, &w, &h);
-  return x + w;
+  const ExtFont *ext = TextCanvas::extFor(font);
+  int x = 0, minX = INT16_MAX, maxX = INT16_MIN;
+  auto glyph = [&](int w, int h, int xo, int adv) {
+    if (w > 0 && h > 0) minX = min(minX, x + xo), maxX = max(maxX, x + xo + w - 1);
+    x += adv;
+  };
+  char two[2];
+  for (int i = 0; s[i];) {
+    uint32_t cp = utf8Next(s, i);
+    int at = ext && cp >= 0x80 ? extIndex(cp) : -1;
+    if (at >= 0) {
+      const ExtGlyph &g = ext->glyph[at];
+      glyph(g.width, g.height, g.xOffset, g.xAdvance);
+      continue;
+    }
+    const char *f = cp < 0x80 ? nullptr : foldCodePoint(cp, two);
+    char one[2] = {(char)cp, 0};
+    for (const char *p = cp < 0x80 ? one : f; p && *p; p++) {
+      uint8_t c = *p;
+      if (c < font->first || c > font->last) continue;
+      const GFXglyph &g = font->glyph[c - font->first];
+      glyph(g.width, g.height, g.xOffset, g.xAdvance);
+    }
+  }
+  return maxX < minX ? 0 : maxX + 1;
 }
 
 static void text(int x, int y, const GFXfont *font, const char *s) {
@@ -709,6 +839,7 @@ static int tempText(int x, int y, const GFXfont *font, float value, int decimals
   char number[12];
   snprintf(number, sizeof number, "%.*f", decimals, value);
   if (number[0] == '-' && strspn(number + 1, "0.") == strlen(number + 1)) memmove(number, number + 1, strlen(number));  // "-0" -> "0"
+  decimalFix(number);
   text(x, y, font, number);
   int at = canvas->getCursorX() + ring + 2;
   int top = y - font->yAdvance * (ring > 4 ? 2 : 1) * 6 / 10;  // about the top of the digits
@@ -829,24 +960,24 @@ static void drawBar() {
     text(x, 29, &FreeSansBold12pt7b, line);
     x = canvas->getCursorX() + 18;
   }
-  if (setupMode) strlcpy(line, "Setup mode", sizeof line);
-  else if (updScreen) strlcpy(line, "Updating", sizeof line);
-  else if (screen == SCREEN_QUICK) strlcpy(line, TALL ? "Quick" : "Quick settings", sizeof line);
-  else if (screen == SCREEN_WELCOME) strlcpy(line, "Welcome", sizeof line);
-  else if (screen == SCREEN_HOME) strlcpy(line, "Home", sizeof line);
+  if (setupMode) utf8Copy(line, T(S_BAR_SETUP_MODE), sizeof line);
+  else if (updScreen) utf8Copy(line, T(S_BAR_UPDATING), sizeof line);
+  else if (screen == SCREEN_QUICK) utf8Copy(line, T(TALL ? S_BAR_QUICK_SHORT : S_BAR_QUICK), sizeof line);
+  else if (screen == SCREEN_WELCOME) utf8Copy(line, T(S_BAR_WELCOME), sizeof line);
+  else if (screen == SCREEN_HOME) utf8Copy(line, T(S_BAR_HOME), sizeof line);
   else if (app == APP_PHOTOS && photoTotal()) {  // which album, and where in it
     bool board = photoIndex < photoStoreCount();
     int n = board ? photoStoreCount() : photoTotal() - photoStoreCount(), at = board ? photoIndex : photoIndex - photoStoreCount();
-    snprintf(line, sizeof line, TALL ? "%s  %d / %d" : "%s photos  %d / %d", board ? "Board" : "Card", at + 1, n);
+    utf8Copy(line, TF(TALL ? S_BAR_PHOTOS_SHORT : S_BAR_PHOTOS, T(board ? S_BAR_BOARD : S_BAR_CARD), at + 1, n).c_str(), sizeof line);
   }
-  else if (app == APP_GAMES) strlcpy(line, gamesBarTitle(), sizeof line);
-  else strlcpy(line, APP_NAMES[app], sizeof line);
+  else if (app == APP_GAMES) utf8Copy(line, gamesBarTitle(), sizeof line);
+  else utf8Copy(line, appName(app), sizeof line);
   String name = fitted(&FreeSans12pt7b, line, right - x - 10);
   text(x, 29, &FreeSans12pt7b, name.c_str());
   x = canvas->getCursorX() + 16;
 
   if (timerRunning && !(screen == SCREEN_APP && app == APP_TIMER)) {
-    snprintf(line, sizeof line, "%d min", (timerSecondsLeft() + 59) / 60);
+    snprintf(line, sizeof line, T(S_MIN_SHORT), (timerSecondsLeft() + 59) / 60);
     if (x + 20 + textW(&FreeSansBold12pt7b, line) < right - 8) {
       hourglassIcon(x, 11);
       text(x + 20, 29, &FreeSansBold12pt7b, line);
@@ -871,18 +1002,18 @@ static void segmentDigit(int x, int y, int w, int h, int t, int digit) {
 
 static void drawClock() {
   // The digits are sized from the width, so they fill either way up.
-  const int DW = W * 15 / 100, DH = DW * 7 / 4, T = DW * 22 / 100, GAP = DW * 18 / 100, COLON = DW * 42 / 100;
+  const int DW = W * 15 / 100, DH = DW * 7 / 4, TH = DW * 22 / 100, GAP = DW * 18 / 100, COLON = DW * 42 / 100;
   int x = (W - (4 * DW + 2 * GAP + COLON)) / 2, y = BODY_Y + (TALL ? 150 : 34);
   bool known = timeKnown();
   time_t t = time(nullptr);
   struct tm tm = *localtime(&t);
   int digits[4] = {tm.tm_hour / 10, tm.tm_hour % 10, tm.tm_min / 10, tm.tm_min % 10};
   for (int i = 0; i < 4; i++) {
-    segmentDigit(x, y, DW, DH, T, known ? digits[i] : -1);
+    segmentDigit(x, y, DW, DH, TH, known ? digits[i] : -1);
     x += DW + (i == 1 ? 0 : GAP);
     if (i == 1) {
-      canvas->fillCircle(x + COLON / 2, y + DH / 3, T / 2, INK);
-      canvas->fillCircle(x + COLON / 2, y + DH * 2 / 3, T / 2, INK);
+      canvas->fillCircle(x + COLON / 2, y + DH / 3, TH / 2, INK);
+      canvas->fillCircle(x + COLON / 2, y + DH * 2 / 3, TH / 2, INK);
       x += COLON;
     }
   }
@@ -893,23 +1024,24 @@ static void drawClock() {
     // No network saved: say where WiFi is set (landscape has room for one line only).
     bool noNets = !netUp() && cfg::wifiNetworks().empty();
     textCentre(W / 2, below + 64, TALL ? &FreeSansBold12pt7b : &FreeSansBold18pt7b,
-               netUp() ? "Setting the time..." : noNets && !TALL ? "No WiFi: set it up in Settings > WiFi" : "No WiFi: the time isn't set");
-    if (noNets && TALL) textCentre(W / 2, below + 104, &FreeSans12pt7b, "Set up WiFi: Settings > WiFi");
+               T(netUp() ? S_CLOCK_SETTING_TIME : noNets && !TALL ? S_CLOCK_NO_WIFI_SETUP : S_CLOCK_NO_WIFI));
+    if (noNets && TALL) textCentre(W / 2, below + 104, &FreeSans12pt7b, T(S_SET_UP_WIFI));
   } else if (TALL) {
-    strftime(line, sizeof line, "%A", &tm);
+    tStrftime(line, sizeof line, T(S_FMT_WEEKDAY), &tm);
     textCentre(W / 2, below + 70, &FreeSansBold18pt7b, line);
-    strftime(line, sizeof line, "%e %B %Y", &tm);
+    tStrftime(line, sizeof line, T(S_FMT_DATE), &tm);
     textCentre(W / 2, below + 114, &FreeSansBold18pt7b, line);
   } else {
-    strftime(line, sizeof line, "%A, %e %B %Y", &tm);
+    tStrftime(line, sizeof line, T(S_FMT_DATE_FULL), &tm);
     textCentre(W / 2, below + 60, &FreeSansBold18pt7b, line);
   }
 
   if (now.climate) {
     const GFXfont *font = TALL ? &FreeSans12pt7b : &FreeSans18pt7b;
-    snprintf(line, sizeof line, "%s indoors    %.0f%% humidity", tempUnit(), now.humidity);
+    snprintf(line, sizeof line, T(S_CLOCK_INDOORS), tempUnit(), now.humidity);
     char number[12];
     snprintf(number, sizeof number, "%.1f", shownTemp(now.tempC));
+    decimalFix(number);
     int width = textW(font, number) + 16 + textW(font, line);
     tempText((W - width) / 2, below + (TALL ? 190 : 124), font, shownTemp(now.tempC), 1, line);
   }
@@ -929,28 +1061,28 @@ static Sky skyOf(int code) {  // WMO weather codes
 
 static const char *skyText(int code) {
   switch (code) {
-    case 0: return "Clear sky";
-    case 1: return "Mostly clear";
-    case 2: return "Partly cloudy";
-    case 3: return "Overcast";
-    case 45: case 48: return "Fog";
-    case 51: case 53: case 55: return "Drizzle";
-    case 56: case 57: return "Freezing drizzle";
-    case 61: return "Light rain";
-    case 63: return "Rain";
-    case 65: return "Heavy rain";
-    case 66: case 67: return "Freezing rain";
-    case 71: return "Light snow";
-    case 73: return "Snow";
-    case 75: return "Heavy snow";
-    case 77: return "Snow grains";
-    case 80: case 81: return "Showers";
-    case 82: return "Heavy showers";
-    case 85: case 86: return "Snow showers";
-    case 95: return "Thunderstorm";
-    case 96: case 99: return "Thunderstorm, hail";
+    case 0: return T(S_SKY_CLEAR);
+    case 1: return T(S_SKY_MOSTLY_CLEAR);
+    case 2: return T(S_SKY_PARTLY);
+    case 3: return T(S_SKY_OVERCAST);
+    case 45: case 48: return T(S_SKY_FOG);
+    case 51: case 53: case 55: return T(S_SKY_DRIZZLE);
+    case 56: case 57: return T(S_SKY_FREEZING_DRIZZLE);
+    case 61: return T(S_SKY_LIGHT_RAIN);
+    case 63: return T(S_SKY_RAIN);
+    case 65: return T(S_SKY_HEAVY_RAIN);
+    case 66: case 67: return T(S_SKY_FREEZING_RAIN);
+    case 71: return T(S_SKY_LIGHT_SNOW);
+    case 73: return T(S_SKY_SNOW);
+    case 75: return T(S_SKY_HEAVY_SNOW);
+    case 77: return T(S_SKY_SNOW_GRAINS);
+    case 80: case 81: return T(S_SKY_SHOWERS);
+    case 82: return T(S_SKY_HEAVY_SHOWERS);
+    case 85: case 86: return T(S_SKY_SNOW_SHOWERS);
+    case 95: return T(S_SKY_THUNDER);
+    case 96: case 99: return T(S_SKY_THUNDER_HAIL);
   }
-  return "Weather";
+  return T(S_SKY_WEATHER);
 }
 
 static void cloudShape(int cx, int cy, int s, int inset, uint16_t colour) {
@@ -1079,19 +1211,20 @@ static void drawSetupCard(const char *title, const std::vector<String> &lines, i
 
 // An app whose service isn't set up: what it needs, and where to set it.
 static void drawSetupHint(const char *title, const char *needs) {
-  drawSetupCard(title, {needs, "", "Set this up in the setup app, on a computer with Chrome or Edge:"});
+  drawSetupCard(title, {needs, "", T(S_SETUP_HINT_WHERE)});
 }
 
 // "updated 14:32", or, once the data is older than twice its interval,
 // "Not updated since 14:32" (with the day when it isn't today).
-static String updatedText(time_t at, int everyMin) {
-  char out[48];
+static String updatedText(time_t at, int everyMin, bool *staleOut = nullptr) {
+  char out[64];
   time_t t = time(nullptr);
   struct tm tm = *localtime(&at);
   bool stale = timeKnown() && t - at > 2L * everyMin * 60;
-  if (!stale) strftime(out, sizeof out, "updated %H:%M", &tm);
-  else if (localDate(at) == localDate(t)) strftime(out, sizeof out, "Not updated since %H:%M", &tm);
-  else strftime(out, sizeof out, "Not updated since %a %e %b, %H:%M", &tm);
+  if (staleOut) *staleOut = stale;
+  if (!stale) tStrftime(out, sizeof out, T(S_UPDATED), &tm);
+  else if (localDate(at) == localDate(t)) tStrftime(out, sizeof out, T(S_NOT_UPDATED_SINCE), &tm);
+  else tStrftime(out, sizeof out, T(S_NOT_UPDATED_SINCE_DAY), &tm);
   return out;
 }
 
@@ -1102,35 +1235,40 @@ static void failureLine(int y, const String &why) {
 
 static void drawWeather() {
   char line[64];
-  if (!weatherConfigured()) return drawSetupHint("Where's the weather for?", "The Weather app needs your town. Turn on \"Find my town automatically\", or type your town and its coordinates.");
+  if (!weatherConfigured()) return drawSetupHint(T(S_WEATHER_SETUP_TITLE), T(S_WEATHER_SETUP));
   if (!weather.ok) {
-    textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, netUp() ? "No forecast yet" : "No WiFi: no forecast");
+    textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, T(netUp() ? S_WEATHER_NONE : S_WEATHER_NONE_NO_WIFI));
     failureLine(H / 2 + 34, netUp() ? weatherError : String());
     // No network saved at all: OK can't help, so say where WiFi is set.
-    textCentre(W / 2, H / 2 + 70, &FreeSans12pt7b, cfg::wifiNetworks().empty() ? "Set up WiFi: Settings > WiFi" : "Press OK to try again");
+    textCentre(W / 2, H / 2 + 70, &FreeSans12pt7b, T(cfg::wifiNetworks().empty() ? S_SET_UP_WIFI : S_PRESS_OK_RETRY));
     return;
   }
   // Now: the sky, the temperature, and the details under it. A tap on a day
   // (or on now, for today) opens its hours.
   weatherDayHits = 0;
   int iconSize = TALL ? 130 : 170, textX = TALL ? 170 : 240;
-  textRight(W - 30, BODY_Y + (TALL ? 26 : 98), &FreeSans9pt7b, "Tap a day for its hours");
+  textRight(W - 30, BODY_Y + (TALL ? 26 : 98), &FreeSans9pt7b, T(S_WEATHER_TAP_DAY));
   skyIcon(TALL ? 88 : 120, BODY_Y + 112, iconSize, weather.code);
   canvas->setTextSize(2);
   tempText(textX, BODY_Y + 120, &FreeSansBold24pt7b, round(shownTemp(weather.temp)), 0, tempUnit(), 8);
   canvas->setTextSize(1);
   text(textX, BODY_Y + 168, TALL ? &FreeSansBold12pt7b : &FreeSansBold18pt7b, skyText(weather.code));
   int y = BODY_Y + 206;
-  snprintf(line, sizeof line, "Humidity %d%%     Wind %.0f km/h", weather.humidity, weather.wind);
+  snprintf(line, sizeof line, T(S_WEATHER_LINE), weather.humidity, weather.wind);
   text(TALL ? 30 : textX, TALL ? (y += 24) : y, &FreeSans12pt7b, line);
-  char indoors[48] = "";
-  if (now.climate) snprintf(indoors, sizeof indoors, "Indoors %.1f %s, %.0f%%", shownTemp(now.tempC), tempUnit(), now.humidity);
-  String upd = updatedText(weather.at, WEATHER_EVERY_MIN);
+  char indoors[64] = "";
+  if (now.climate) {
+    char number[12];
+    snprintf(number, sizeof number, "%.1f", shownTemp(now.tempC));
+    decimalFix(number);
+    snprintf(indoors, sizeof indoors, T(S_WEATHER_INDOORS), number, tempUnit(), now.humidity);
+  }
+  bool stale;
+  String upd = updatedText(weather.at, WEATHER_EVERY_MIN, &stale);
   const char *updated = upd.c_str();
-  bool stale = !upd.startsWith("updated");
   if (TALL) {
     text(30, y += 34, &FreeSans12pt7b, indoors);
-    snprintf(line, sizeof line, "%s, %s", weatherPlace(), updated);
+    snprintf(line, sizeof line, T(S_WEATHER_PLACE_UPDATED), weatherPlace(), updated);
     text(30, y += 34, &FreeSans12pt7b, line);
     y += 22;
   } else {
@@ -1153,18 +1291,18 @@ static void drawWeather() {
   if (timeKnown())
     while (first < weather.days && weather.dayDate[first] < today) first++;
   if (first >= weather.days) {
-    failureLine(y + 90, weatherError.length() ? weatherError : String("The forecast is out of date."));
+    failureLine(y + 90, weatherError.length() ? weatherError : String(T(S_WEATHER_OUT_OF_DATE)));
     return;
   }
   for (int k = 0; first + k < weather.days; k++) {
     int i = first + k;
-    char dayName[8];
+    char dayName[24];
     long dd = weather.dayDate[i];
     struct tm dt = {};
     dt.tm_year = dd / 10000 - 1900, dt.tm_mon = dd / 100 % 100 - 1, dt.tm_mday = dd % 100, dt.tm_hour = 12;
     time_t dayT = mktime(&dt);
-    strftime(dayName, sizeof dayName, "%a", localtime(&dayT));
-    const char *day = dd == today ? "Today" : dayName;
+    tStrftime(dayName, sizeof dayName, "%a", localtime(&dayT));
+    const char *day = dd == today ? T(S_TODAY) : dayName;
     snprintf(line, sizeof line, "%d / %d", wholeTemp(shownTemp(weather.dayMax[i])), wholeTemp(shownTemp(weather.dayMin[i])));
     if (TALL) {
       int rowH = (H - y - 10) / 5, rowY = y + rowH * k;
@@ -1187,7 +1325,7 @@ static void drawWeather() {
 // ---------------------------------------------------------------- Claude usage
 
 static void usageRow(int y, const char *label, int percent, long resetsAt, const char *resetFormat) {
-  char line[48];
+  char line[80];
   text(40, y, TALL ? &FreeSansBold12pt7b : &FreeSansBold18pt7b, label);
   if (percent >= 0) snprintf(line, sizeof line, "%d%%", percent);
   else strlcpy(line, "--", sizeof line);
@@ -1199,7 +1337,7 @@ static void usageRow(int y, const char *label, int percent, long resetsAt, const
   if (fill > 0) canvas->fillRoundRect(46, barY + 6, max(fill, 10), barH - 12, 4, INK);
   if (resetsAt > 0) {
     time_t t = resetsAt;
-    strftime(line, sizeof line, resetFormat, localtime(&t));
+    tStrftime(line, sizeof line, resetFormat, localtime(&t));
     text(40, barY + barH + 30, &FreeSans12pt7b, line);
   }
 }
@@ -1207,27 +1345,27 @@ static void usageRow(int y, const char *label, int percent, long resetsAt, const
 static void drawClaude() {
   char line[48];
   if (!claudeConfigured())
-    return drawSetupHint("Claude usage", "The gauge shows numbers you publish to your own MQTT broker. It needs the broker and the topic prefix.");
+    return drawSetupHint(T(S_CLAUDE_SETUP_TITLE), T(S_CLAUDE_SETUP));
   text(40, BODY_Y + 58, &FreeSansBold24pt7b, "Claude Code");
   if (!claude.ok) {
-    textCentre(W / 2, H / 2, &FreeSansBold18pt7b, netUp() ? "No usage numbers yet" : "No WiFi: no usage");
+    textCentre(W / 2, H / 2, &FreeSansBold18pt7b, T(netUp() ? S_CLAUDE_NONE : S_CLAUDE_NONE_NO_WIFI));
     failureLine(H / 2 + 44, netUp() ? claudeError : String());
-    textCentre(W / 2, H / 2 + 80, &FreeSans12pt7b, "Press OK to try again");
+    textCentre(W / 2, H / 2 + 80, &FreeSans12pt7b, T(S_PRESS_OK_RETRY));
     return;
   }
-  String upd = updatedText(claude.at, CLAUDE_EVERY_MIN);
-  bool stale = !upd.startsWith("updated");
+  bool stale;
+  String upd = updatedText(claude.at, CLAUDE_EVERY_MIN, &stale);
   const GFXfont *updFont = stale ? &FreeSansBold12pt7b : &FreeSans12pt7b;
   if (TALL) text(40, BODY_Y + 92, updFont, upd.c_str());
   else textRight(W - 40, BODY_Y + 54, updFont, upd.c_str());
   // The plan's limits are weekly: everything together, and Fable on its own.
   int first = BODY_Y + (TALL ? 180 : 132), gap = TALL ? 200 : 160;
-  usageRow(first, "This week, all models", claude.weekPct, claude.weekReset, "resets %A at %H:%M");
-  usageRow(first + gap, "This week, Fable", claude.fablePct, claude.fableReset, "resets %A at %H:%M");
+  usageRow(first, T(S_CLAUDE_WEEK_ALL), claude.weekPct, claude.weekReset, T(S_CLAUDE_RESETS));
+  usageRow(first + gap, T(S_CLAUDE_WEEK_FABLE), claude.fablePct, claude.fableReset, T(S_CLAUDE_RESETS));
   if (stale && claudeError.length()) {  // why it isn't updating
     textCentre(W / 2, H - 14, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, claudeError, W - 40).c_str());
   } else if (claude.ageSeconds > 1800) {  // the publisher has stopped getting fresh numbers
-    snprintf(line, sizeof line, "These numbers are %ld hours old", claude.ageSeconds / 3600 + 1);
+    snprintf(line, sizeof line, T(S_CLAUDE_HOURS_OLD), claude.ageSeconds / 3600 + 1);
     textCentre(W / 2, H - 14, &FreeSansBold12pt7b, line);
   }
 }
@@ -1237,7 +1375,7 @@ static void drawClaude() {
 // Cuts `s` with "..." so it fits `width` pixels in `font`.
 static String fitted(const GFXfont *font, String s, int width) {
   if (textW(font, s.c_str()) <= width) return s;
-  while (s.length() > 1 && textW(font, (s + "...").c_str()) > width) s.remove(s.length() - 1);
+  while (s.length() > 1 && textW(font, (s + "...").c_str()) > width) s.remove(utf8Back(s.c_str(), s.length()));  // a whole character
   return s + "...";
 }
 
@@ -1298,45 +1436,105 @@ static void keyboardGlyph(int cx, int cy, uint16_t fg) {
   canvas->fillRect(cx - 7, cy + 5, 14, 2, fg);  // the space bar
 }
 
-enum KeyCode { K_SHIFT = 1, K_BACK, K_LAYER, K_MIC, K_DONE, K_MORE };
+enum KeyCode { K_SHIFT = 1, K_BACK, K_LAYER, K_MIC, K_DONE, K_MORE, K_ACCENTS, K_GLOBE };
+// The other keys' codes are the characters they type (Unicode code points).
 
 static int keyRowPitch() { return TALL ? 80 : 68; }
 static const int KB_NOTE_H = 26;  // a line above the keys for what the microphone says
 // The keys and the line above them, from the bottom of the screen up.
 static int keyboardHeight() { return KB_NOTE_H + 4 * keyRowPitch() + 2; }
 
+// The letters for the board's language: three rows, and the accented letters
+// of its own page (the key left of "." opens it; its label is the first two).
+// Russian has its own letters, and a globe key for the Latin ones.
+static const KbLetters KB_LATIN = {{"qwertyuiop", "asdfghjkl", "zxcvbnm"}, ""};
+static const KbLetters KB_GERMAN = {{"qwertzuiop", "asdfghjkl", "yxcvbnm"}, "äöüß"};
+static const KbLetters KB_CYRILLIC = {{"йцукенгшщзхъ", "фывапролджэ", "ячсмитьбюё"}, ""};
+static const char *const KB_ACCENTS[LANG_COUNT] = {
+    "",                     // English
+    "áéíóúñü¿¡",            // Spanish
+    "áàâãçéêíóôõú",         // Portuguese
+    "àâæçéèêëîïôœùûüÿ«»",   // French
+    "äöüß",                 // German
+    "àèéìíòóùú",            // Italian
+    "",                     // Russian: its own letters
+    "çğıöşü",               // Turkish
+    "ąćęłńóśźż",            // Polish
+    "ăâîșț„”",              // Romanian
+};
+static bool kbCyrillic(const Keyboard &kb) { return i18nLang() == L_RU && !kb.alt; }
+static const char *kbAccents() { return i18nLang() == L_DE ? KB_GERMAN.accents : KB_ACCENTS[i18nLang()]; }
+static const char *const *kbLetterRows(const Keyboard &kb) { return (kbCyrillic(kb) ? KB_CYRILLIC : i18nLang() == L_DE ? KB_GERMAN : KB_LATIN).rows; }
+
+// A row's characters as code points; returns how many.
+static int kbRow(const char *row, uint16_t *out, int max) {
+  int n = 0;
+  for (int i = 0; row[i] && n < max;) out[n++] = utf8Next(row, i);
+  return n;
+}
+
 // Where every key is for the layer on show; keysY is the top of the first row.
-// Positions are in half keys: twenty across the width. Three layers: the
-// letters, digits and symbols (?123), and more symbols (=\<) -- between
-// them every printable ASCII character, which a WiFi password may use.
+// The three rows of characters share a grid as wide as the longest row (ten
+// keys for QWERTY, twelve for Russian), each row centred, shift and delete
+// at the ends of the third. Then the bottom row, in twentieths of the width:
+// ?123, the microphone, ",", space, the accents or globe key (when the
+// language has one), "." and Done. Between the layers every printable ASCII
+// character is there, which a WiFi password may use.
+static const int KB_MAX_KEYS = 48;
 static int keyboardKeys(const Keyboard &kb, int keysY, KeyBox *out) {
-  static const char *const LETTERS[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
   static const char *const SYMBOLS[] = {"1234567890", "@#&-+()/:", "?!'\";%*"};
   static const char *const MORE[] = {"[]{}<>^~|\\", "*$_=`@#&+", "-()/:;%"};
   const int M = 2, GAP = 5, pitch = keyRowPitch(), kh = pitch - 8;
-  auto hx = [&](int half) { return M + half * (W - 2 * M) / 20; };
+  uint16_t rows[3][16];  // code points (all below U+FFFF); a small stack: this runs inside the drawing
+  int len[3] = {0, 0, 0};
+  if (kb.layer == 3) {  // the accented letters, ten a row, the rest between shift and delete
+    uint16_t all[30];
+    int n = kbRow(kbAccents(), all, 30);
+    for (int k = 0; k < n; k++) {
+      int r = k < 10 ? 0 : k < 20 ? 1 : 2;
+      rows[r][len[r]++] = all[k];
+    }
+  } else {
+    const char *const *src = kb.layer == 2 ? MORE : kb.layer == 1 ? SYMBOLS : kbLetterRows(kb);
+    for (int r = 0; r < 3; r++) len[r] = kbRow(src[r], rows[r], 16);
+  }
+  int cols = max(10, max(len[0], max(len[1], len[2] + 2)));
   int n = 0;
-  auto add = [&](int row, int from, int to, int code) {
+  auto px = [&](int half, int halves) { return M + half * (W - 2 * M) / halves; };
+  auto add = [&](int row, int from, int to, int halves, int code) {
+    if (n >= KB_MAX_KEYS) return;
     KeyBox &k = out[n++];
-    k.x = hx(from) + GAP / 2;
-    k.w = hx(to) - hx(from) - GAP;
+    k.x = px(from, halves) + GAP / 2;
+    k.w = px(to, halves) - px(from, halves) - GAP;
     k.y = keysY + row * pitch;
     k.h = kh;
     k.code = code;
   };
-  const char *const *rows = kb.layer == 2 ? MORE : kb.layer ? SYMBOLS : LETTERS;
-  for (int i = 0; i < 10; i++) add(0, i * 2, i * 2 + 2, rows[0][i]);
-  for (int i = 0; i < 9; i++) add(1, 1 + i * 2, 3 + i * 2, rows[1][i]);
-  add(2, 0, 3, kb.layer ? K_MORE : K_SHIFT);
-  for (int i = 0; i < 7; i++) add(2, 3 + i * 2, 5 + i * 2, rows[2][i]);
-  add(2, 17, 20, K_BACK);
-  add(3, 0, 3, K_LAYER);
-  add(3, 3, 5, kb.masked ? '_' : K_MIC);  // no dictating a password
-  add(3, 5, 7, ',');
-  add(3, 7, 14, ' ');
-  add(3, 14, 16, '.');
-  add(3, 16, 20, K_DONE);
+  const int H2 = 2 * cols;  // the grid in half keys
+  for (int r = 0; r < 2; r++)
+    for (int i = 0; i < len[r]; i++) add(r, cols - len[r] + 2 * i, cols - len[r] + 2 * i + 2, H2, rows[r][i]);
+  int side = min(3, cols - len[2]);
+  add(2, 0, side, H2, kb.layer == 1 || kb.layer == 2 ? K_MORE : K_SHIFT);
+  for (int i = 0; i < len[2]; i++) add(2, cols - len[2] + 2 * i, cols - len[2] + 2 * i + 2, H2, rows[2][i]);
+  add(2, H2 - side, H2, H2, K_BACK);
+  int extra = i18nLang() == L_RU ? K_GLOBE : *kbAccents() ? K_ACCENTS : 0;
+  add(3, 0, 3, 20, K_LAYER);
+  add(3, 3, 5, 20, kb.masked ? '_' : K_MIC);  // no dictating a password
+  add(3, 5, 7, 20, ',');
+  add(3, 7, extra ? 12 : 14, 20, ' ');
+  if (extra) add(3, 12, 14, 20, extra);
+  add(3, 14, 16, 20, '.');
+  add(3, 16, 20, 20, K_DONE);
   return n;
+}
+
+// A small globe: the keyboard's other alphabet.
+static void globeGlyph(int cx, int cy, uint16_t fg) {
+  for (int k = 0; k < 2; k++) canvas->drawCircle(cx, cy, 13 - k, fg);
+  canvas->drawEllipse(cx, cy, 5, 12, fg);
+  canvas->drawFastHLine(cx - 12, cy, 25, fg);
+  canvas->drawFastHLine(cx - 10, cy - 6, 21, fg);
+  canvas->drawFastHLine(cx - 10, cy + 6, 21, fg);
 }
 
 // Starts the keyboard on `text`; a new sentence starts with a capital.
@@ -1346,6 +1544,7 @@ static void keyboardBegin(Keyboard &kb, const String &text, const char *label, c
   kb.hint = hint;
   kb.note = "";
   kb.layer = 0;
+  kb.alt = false;
   kb.shift = text.length() ? 0 : 1;
   kb.shiftAt = 0;
   kb.maxLen = maxLen;
@@ -1357,6 +1556,7 @@ static void keyboardBegin(Keyboard &kb, const String &text, const char *label, c
 // For a password: dots, a Show key, no capitals unless asked for.
 static void keyboardSecret(Keyboard &kb) {
   kb.masked = true;
+  kb.alt = true;  // a password: the Latin letters first, also in Russian
   kb.reveal = false;
   kb.shift = 0;
 }
@@ -1416,7 +1616,7 @@ static void keyboardDrawKeys(Keyboard &kb, int top) {
   keyboardShown = true;
   if (kb.note.length()) text(12, top + 19, &FreeSansBold9pt7b, fitted(&FreeSansBold9pt7b, kb.note, W - 24).c_str());
   kb.keysTop = top + KB_NOTE_H;
-  KeyBox keys[40];
+  KeyBox keys[KB_MAX_KEYS];
   int n = keyboardKeys(kb, kb.keysTop, keys);
   for (int i = 0; i < n; i++) {
     const KeyBox &k = keys[i];
@@ -1452,15 +1652,35 @@ static void keyboardDrawKeys(Keyboard &kb, int top) {
           canvas->drawLine(cx + 8 + t, cy - 5, cx - 2 + t, cy + 5, fg);
         }
         break;
-      case K_LAYER: keyLabel(cx, cy, &FreeSansBold12pt7b, kb.layer ? "ABC" : "?123", 8); break;
+      case K_LAYER: keyLabel(cx, cy, &FreeSansBold12pt7b, kb.layer == 1 || kb.layer == 2 ? T(S_KB_ABC) : "?123", 8); break;
       case K_MORE: keyLabel(cx, cy, &FreeSansBold12pt7b, kb.layer == 2 ? "?123" : "=\\<", 8); break;
+      case K_GLOBE: globeGlyph(cx, cy, fg); break;
+      case K_ACCENTS: {  // the first two accented letters, or back to abc
+        String label;
+        if (kb.layer == 3) label = "abc";
+        else {
+          const char *a = kbAccents();
+          int i = 0;
+          utf8Next(a, i);
+          utf8Next(a, i);
+          label = String(a).substring(0, i);
+        }
+        keyLabel(cx, cy, &FreeSansBold12pt7b, label.c_str(), 7);
+        break;
+      }
       case K_MIC: micGlyph(cx, cy, fg); break;
-      case K_DONE: keyLabel(cx, cy, &FreeSansBold12pt7b, "Done", 8); break;
-      case ' ': keyLabel(cx, cy, &FreeSans9pt7b, "space", 5); break;
+      case K_DONE: {  // the smaller type before cutting a longer word ("Готово" upright)
+        const GFXfont *df = textW(&FreeSansBold12pt7b, T(S_KB_DONE)) <= k.w - 10 ? &FreeSansBold12pt7b : &FreeSansBold9pt7b;
+        keyLabel(cx, cy, df, fitted(df, T(S_KB_DONE), k.w - 8).c_str(), df == &FreeSansBold9pt7b ? 6 : 8);
+        break;
+      }
+      case ' ': keyLabel(cx, cy, &FreeSans9pt7b, fitted(&FreeSans9pt7b, T(S_KB_SPACE), k.w - 10).c_str(), 5); break;
       default: {
-        char s[2] = {(char)k.code, 0};
-        if (kb.shift && s[0] >= 'a' && s[0] <= 'z') s[0] -= 32;
-        keyLabel(cx, cy, &FreeSans18pt7b, s, s[0] >= 'a' ? 7 : 12);
+        uint32_t c = kb.shift ? cpUpper(k.code, i18nLang() == L_TR) : k.code;
+        String s;
+        utf8Append(s, c);
+        bool lower = c >= 'a' && c <= 'z';
+        keyLabel(cx, cy, &FreeSans18pt7b, s.c_str(), lower ? 7 : 12);
       }
     }
     canvas->setTextColor(INK);
@@ -1471,14 +1691,19 @@ static void keyboardDrawKeys(Keyboard &kb, int top) {
 // password), the field, the keys.
 static void keyboardDraw(Keyboard &kb, int top) {
   kb.labelTop = top;
-  text(16, top + 32, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, kb.label, W - (kb.masked ? 280 : 160)).c_str());
-  canvas->drawRoundRect(W - 124, top + 6, 112, 40, 20, INK);
-  canvas->drawRoundRect(W - 123, top + 7, 110, 38, 19, INK);
-  textCentre(W - 68, top + 33, &FreeSansBold12pt7b, "Cancel");
+  const GFXfont *bf = &FreeSansBold12pt7b;
+  // Cancel, and Show / Hide, as wide as their words need (the wider of Show and Hide, so it doesn't jump).
+  int cw = constrain(textW(bf, T(S_KB_CANCEL)) + 28, 112, 170);
+  int sw = constrain(max(textW(bf, T(S_KB_SHOW)), textW(bf, T(S_KB_HIDE))) + 28, 102, 160);
+  kb.cancelX = W - 12 - cw, kb.showX = kb.masked ? kb.cancelX - 12 - sw : kb.cancelX;
+  text(16, top + 32, bf, fitted(bf, kb.label, kb.showX - 30).c_str());
+  canvas->drawRoundRect(kb.cancelX, top + 6, cw, 40, 20, INK);
+  canvas->drawRoundRect(kb.cancelX + 1, top + 7, cw - 2, 38, 19, INK);
+  textCentre(kb.cancelX + cw / 2, top + 33, bf, fitted(bf, T(S_KB_CANCEL), cw - 12).c_str());
   if (kb.masked) {
-    canvas->drawRoundRect(W - 238, top + 6, 102, 40, 20, INK);
-    canvas->drawRoundRect(W - 237, top + 7, 100, 38, 19, INK);
-    textCentre(W - 187, top + 33, &FreeSansBold12pt7b, kb.reveal ? "Hide" : "Show");
+    canvas->drawRoundRect(kb.showX, top + 6, sw, 40, 20, INK);
+    canvas->drawRoundRect(kb.showX + 1, top + 7, sw - 2, 38, 19, INK);
+    textCentre(kb.showX + sw / 2, top + 33, bf, fitted(bf, T(kb.reveal ? S_KB_HIDE : S_KB_SHOW), sw - 12).c_str());
   }
   int keysAt = H - keyboardHeight(), fieldY = top + 54;
   int fieldH = constrain(keysAt - fieldY - 4, 52, 4 * 30 + 12);
@@ -1489,38 +1714,40 @@ static void keyboardDraw(Keyboard &kb, int top) {
 // Speaks into the field: tap the microphone, speak, tap again to stop.
 static void keyboardDictate(Keyboard &kb) {
   kb.listening = true;
-  kb.note = "Listening... tap anywhere to stop.";
+  kb.note = T(S_KB_LISTENING);
+  listenHint = T(S_LISTEN_HINT);
   render(false);
   int16_t *pcm = nullptr;
   micTapPhase = 0;
   size_t samples = micRecord(keepListeningTouch, &pcm);
   kb.listening = false;
+  listenHint = nullptr;
   waitForLift();
   voiceNotes++;
   if (samples < 16000 / 2) {
     free(pcm);
-    kb.note = samples ? "That was too short: nothing was heard." : micError();
+    kb.note = samples ? T(S_KB_TOO_SHORT) : micError();
     render(false);
     return;
   }
   // On the notes task; the loop puts the words in the field (notesPoll). Only Notes' keyboard has a microphone.
   String why;
-  if (!netUp()) free(pcm), kb.note = "No WiFi: I can't turn speech into text.";
+  if (!netUp()) free(pcm), kb.note = T(S_NO_WIFI_SPEECH);
   else if (&kb != &noteKb) free(pcm), kb.note = "";
   else if (!notesStart(JOB_DICTATE, pcm, samples, "", why)) kb.note = why;
-  else kb.note = "Turning speech into text...";
+  else kb.note = T(S_KB_TRANSCRIBING);
   render(false);
 }
 
 // A tap on the keyboard (the nearest key counts, so a tap between two isn't lost).
 static int keyboardTap(Keyboard &kb, int x, int y) {
-  if (kb.labelTop >= 0 && y >= kb.labelTop && y < kb.labelTop + 52 && x > W - 140) return KB_CANCEL;
-  if (kb.masked && kb.labelTop >= 0 && y >= kb.labelTop && y < kb.labelTop + 52 && x > W - 246) {
+  if (kb.labelTop >= 0 && y >= kb.labelTop && y < kb.labelTop + 52 && x > kb.cancelX - 16) return KB_CANCEL;
+  if (kb.masked && kb.labelTop >= 0 && y >= kb.labelTop && y < kb.labelTop + 52 && x > kb.showX - 8) {
     kb.reveal = !kb.reveal;
     return KB_CHANGED;
   }
   if (y < kb.keysTop - 8) return KB_NONE;
-  KeyBox keys[40];
+  KeyBox keys[KB_MAX_KEYS];
   int n = keyboardKeys(kb, kb.keysTop, keys), best = -1, bestDist = 1 << 20;
   for (int i = 0; i < n; i++) {
     const KeyBox &k = keys[i];
@@ -1546,18 +1773,19 @@ static int keyboardTap(Keyboard &kb, int x, int y) {
       }
       keyboardAutoShift(kb);
       return KB_CHANGED;
-    case K_LAYER: kb.layer = kb.layer ? 0 : 1; return KB_CHANGED;
+    case K_LAYER: kb.layer = kb.layer == 1 || kb.layer == 2 ? 0 : 1; return KB_CHANGED;
     case K_MORE: kb.layer = kb.layer == 2 ? 1 : 2; return KB_CHANGED;
+    case K_ACCENTS: kb.layer = kb.layer == 3 ? 0 : 3; return KB_CHANGED;
+    case K_GLOBE: kb.alt = !kb.alt, kb.layer = 0; return KB_CHANGED;
     case K_MIC: keyboardDictate(kb); return KB_NONE;  // it has drawn itself
     case K_DONE: return KB_DONE;
   }
-  if ((int)kb.text.length() >= kb.maxLen) return KB_NONE;
-  char c = code;
-  if (kb.shift && c >= 'a' && c <= 'z') c -= 32;
-  kb.text += c;
+  if (utf8Count(kb.text.c_str()) >= kb.maxLen) return KB_NONE;
+  uint32_t c = kb.shift ? cpUpper(code, i18nLang() == L_TR) : code;
+  utf8Append(kb.text, c);
   if (kb.shift == 1) kb.shift = 0;
   if (c == ' ') {
-    if (kb.layer) kb.layer = 0;  // after a space, back to the letters
+    if (kb.layer) kb.layer = 0;  // after a space, back to the letters (from the accents too)
     keyboardAutoShift(kb);
   }
   return KB_CHANGED;
@@ -1597,7 +1825,7 @@ static bool onDay(const CalEvent &e, time_t day, time_t next) { return (time_t)e
 
 static void timeRange(const CalEvent &e, char *out, size_t size) {
   if (e.allDay) {
-    strlcpy(out, "All day", size);
+    utf8Copy(out, T(S_CAL_ALL_DAY), size);
     return;
   }
   time_t s = e.start, en = e.end;
@@ -1610,8 +1838,8 @@ static void timeRange(const CalEvent &e, char *out, size_t size) {
 // "25 min", "2 h 5 min", "3 h"
 static String calDuration(long seconds) {
   long m = max(1L, (seconds + 59) / 60);
-  if (m < 60) return String(m) + " min";
-  return String(m / 60) + " h" + (m % 60 ? " " + String(m % 60) + " min" : String());
+  if (m < 60) return TF(S_CAL_MIN, m);
+  return TF(S_CAL_H, m / 60) + (m % 60 ? " " + TF(S_CAL_MIN, m % 60) : String());
 }
 
 static void pillButton(int x, int y, int w, int h, const char *label, bool filled, const GFXfont *f) {
@@ -1638,33 +1866,33 @@ static void calCard(int x, int y, int w, int h, const CalList &all) {
     if (!next && (time_t)e.start > now) next = &e;
   }
   const CalEvent *shown = cur ? cur : next;
-  String label, aside, last;
+  String label, aside, last, then;  // then: the next event's start, after `last` (", then 16:00")
   char hm[8], line[48];
   if (cur) {
     time_t end = cur->end;
     strftime(hm, sizeof hm, "%H:%M", localtime(&end));
-    label = "NOW";
-    aside = String("until ") + hm;
-    last = calDuration(cur->end - now) + " left";
+    label = T(S_CAL_NOW);
+    aside = TF(S_CAL_UNTIL, hm);
+    last = TF(S_CAL_LEFT, calDuration(cur->end - now).c_str());
     if (next && (time_t)next->start < tomorrow) {
       time_t s = next->start;
       strftime(hm, sizeof hm, "%H:%M", localtime(&s));
-      last += String(", then ") + hm;
+      then = TF(S_CAL_THEN, hm);
     }
   } else if (next && (time_t)next->start < tomorrow) {
     time_t s = next->start;
     strftime(hm, sizeof hm, "%H:%M", localtime(&s));
-    label = String("FREE UNTIL ") + hm;
-    aside = "in " + calDuration(next->start - now);
+    label = TF(S_CAL_FREE_UNTIL, hm);
+    aside = TF(S_CAL_IN, calDuration(next->start - now).c_str());
     timeRange(*next, line, sizeof line);
     last = line;
   } else if (next) {
     time_t s = next->start;
-    label = "NOTHING ELSE TODAY";
-    strftime(line, sizeof line, (time_t)next->start < addDays(today, 2) ? "Tomorrow %H:%M" : "%a %e %b, %H:%M", localtime(&s));
+    label = T(S_CAL_NOTHING_ELSE_TODAY_CAPS);
+    tStrftime(line, sizeof line, T((time_t)next->start < addDays(today, 2) ? S_CAL_TOMORROW_AT : S_FMT_DAY_DATE_TIME), localtime(&s));
     last = line;
   } else {
-    label = calendarOk ? "NOTHING COMING UP" : "CALENDAR";
+    label = T(calendarOk ? S_CAL_NOTHING_COMING_CAPS : S_CAL_CAPS);
   }
   const int pad = 18;
   int ty = y + 72;
@@ -1674,8 +1902,8 @@ static void calCard(int x, int y, int w, int h, const CalList &all) {
       textRight(x + w - pad, y + 31, &FreeSansBold12pt7b, aside.c_str());
     else text(x + pad, y + 58, &FreeSansBold12pt7b, aside.c_str()), ty = y + 100;
   }
-  String title = shown ? (shown->title[0] ? String(shown->title) : String("(No title)"))
-                       : String(calendarOk ? "Free" : netUp() ? "No calendar yet" : "No WiFi");
+  String title = shown ? (shown->title[0] ? String(shown->title) : String(T(S_CAL_NO_TITLE)))
+                       : String(T(calendarOk ? S_CAL_FREE : netUp() ? S_CAL_NO_CALENDAR : S_CAL_NO_WIFI));
   if (!shown && !calendarOk && calendarError.length()) last = calendarError;
   int lines = h >= 150 ? 2 : 1;
   std::vector<String> words = wrapped(&FreeSansBold18pt7b, title, w - 2 * pad);
@@ -1688,12 +1916,13 @@ static void calCard(int x, int y, int w, int h, const CalList &all) {
     // "1 h 5 min left, then 23:00" is too wide for the narrow card in
     // landscape: the "then" goes on a line of its own when there's room, or
     // the line gets the smaller type, before anything is cut.
-    int ly = min(ty - 6, y + h - 16), lw = w - 2 * pad, comma = last.indexOf(", then ");
-    if (textW(&FreeSans12pt7b, last.c_str()) <= lw) text(x + pad, ly, &FreeSans12pt7b, last.c_str());
-    else if (comma > 0 && ly + 28 <= y + h - 12) {
-      text(x + pad, ly, &FreeSans12pt7b, fitted(&FreeSans12pt7b, last.substring(0, comma), lw).c_str());
-      text(x + pad, ly + 28, &FreeSans12pt7b, fitted(&FreeSans12pt7b, last.substring(comma + 2), lw).c_str());
-    } else text(x + pad, ly, &FreeSans9pt7b, fitted(&FreeSans9pt7b, last, lw).c_str());
+    int ly = min(ty - 6, y + h - 16), lw = w - 2 * pad;
+    String whole = then.length() ? last + ", " + then : last;
+    if (textW(&FreeSans12pt7b, whole.c_str()) <= lw) text(x + pad, ly, &FreeSans12pt7b, whole.c_str());
+    else if (then.length() && ly + 28 <= y + h - 12) {
+      text(x + pad, ly, &FreeSans12pt7b, fitted(&FreeSans12pt7b, last + ",", lw).c_str());
+      text(x + pad, ly + 28, &FreeSans12pt7b, fitted(&FreeSans12pt7b, then, lw).c_str());
+    } else text(x + pad, ly, &FreeSans9pt7b, fitted(&FreeSans9pt7b, whole, lw).c_str());
   }
   canvas->setTextColor(INK);
   if (shown) calHits.push_back({(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, *shown});
@@ -1703,13 +1932,13 @@ static void calCard(int x, int y, int w, int h, const CalList &all) {
 static void calStrip(int x, int y, int w, const CalList &all) {
   calStripX = x, calStripY = y, calStripW = w;
   time_t today = calToday(), first = weekStart(today);
-  static const char INITIAL[] = "MTWTFSS";
+
   int cw = w / 7;
   for (int i = 0; i < 7; i++) {
     time_t d = addDays(first, i), next = addDays(first, i + 1);
     int cx = x + i * cw + cw / 2, cy = y + 38;
-    char label[2] = {INITIAL[i], 0}, num[4];
-    textCentre(cx, y + 14, &FreeSans9pt7b, label);
+    char num[4];
+    textCentre(cx, y + 14, &FreeSans9pt7b, TItem(S_DAYS_INITIAL, i).c_str());
     snprintf(num, sizeof num, "%d", localtime(&d)->tm_mday);
     bool narrow = cw < 52;  // the left panel in landscape: smaller numbers, so they don't touch
     if (d == today) canvas->fillCircle(cx, cy, narrow ? 15 : 17, INK);
@@ -1772,8 +2001,8 @@ static void calAgenda(int x, int right, int top, int bottom, const CalList &all)
       if (newPage && l.kind != 0) {  // a day carried over: its heading again
         if (draw) {
           struct tm d = *localtime(&heading);
-          char head[40];
-          strftime(head, sizeof head, "%A %e %B, more", &d);
+          char head[64];
+          tStrftime(head, sizeof head, T(S_CAL_MORE), &d);
           text(x, y + 34, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, head, right - x).c_str());
           canvas->drawFastHLine(x, y + 44, right - x, INK);
         }
@@ -1781,10 +2010,11 @@ static void calAgenda(int x, int right, int top, int bottom, const CalList &all)
       }
       if (draw && l.kind == 0) {
         struct tm d = *localtime(&l.day);
-        char head[48], date[32];
-        strftime(date, sizeof date, "%a %e %b", &d);
-        snprintf(head, sizeof head, "%s%s", l.day == today ? "Today, " : l.day == addDays(today, 1) ? "Tomorrow, " : "", date);
-        if (l.day > addDays(today, 1)) strftime(head, sizeof head, "%A %e %B", &d);
+        char head[72], date[40];
+        tStrftime(date, sizeof date, T(S_FMT_DAY_DATE), &d);
+        if (l.day == today) snprintf(head, sizeof head, T(S_CAL_TODAY_DATE), date);
+        else if (l.day == addDays(today, 1)) snprintf(head, sizeof head, T(S_CAL_TOMORROW_DATE), date);
+        else tStrftime(head, sizeof head, T(S_FMT_WEEKDAY_DATE), &d);
         int textEnd = right;
         int w = weather.ok ? weatherDayIndex(weather, l.day + 12 * 3600) : -1;  // the forecast for that date, if it has one
         if (w >= 0) {
@@ -1800,17 +2030,18 @@ static void calAgenda(int x, int right, int top, int bottom, const CalList &all)
         canvas->drawFastHLine(x, y + 45, right - x, INK);
       } else if (draw && l.kind == 1) {
         const CalEvent &e = *l.e;
-        char when[24];
+        char when[40];
         timeRange(e, when, sizeof when);
-        if (!e.allDay) when[5] = 0;  // the start; the end is in the detail
+        if (!e.allDay) when[5] = 0;  // the start (HH:MM); the end is in the detail
         bool on = !e.allDay && (time_t)e.start <= now;
         if (on) canvas->fillRoundRect(x, y + 10, 5, 28, 2, INK);  // on now
-        text(x + 14, y + 32, e.allDay ? &FreeSans9pt7b : &FreeSans12pt7b, when);
-        int tx = x + 100;
-        text(tx, y + 32, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, e.title[0] ? String(e.title) : String("(No title)"), right - tx).c_str());
+        const GFXfont *wf = e.allDay ? &FreeSans9pt7b : &FreeSans12pt7b;
+        text(x + 14, y + 32, wf, when);
+        int tx = max(x + 100, x + 14 + textW(wf, when) + 10);  // "All day" can be longer in other languages
+        text(tx, y + 32, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, e.title[0] ? String(e.title) : String(T(S_CAL_NO_TITLE)), right - tx).c_str());
         calHits.push_back({(int16_t)x, (int16_t)y, (int16_t)(right - x), (int16_t)ROW, e});
       } else if (draw && l.kind == 2) {
-        text(x + 14, y + 30, &FreeSans12pt7b, "Nothing else today");
+        text(x + 14, y + 30, &FreeSans12pt7b, T(S_CAL_NOTHING_ELSE_TODAY));
       }
       y += height(l);
     }
@@ -1819,17 +2050,17 @@ static void calAgenda(int x, int right, int top, int bottom, const CalList &all)
   }
   calPages = pages;
   if (pages > 1) {
-    char line[32];
-    snprintf(line, sizeof line, "%d / %d   swipe up for more", calendarPage + 1, pages);
-    if (calendarPage == pages - 1) snprintf(line, sizeof line, "%d / %d", calendarPage + 1, pages);
+    char line[64];
+    snprintf(line, sizeof line, T(S_PAGE_MORE), calendarPage + 1, pages);
+    if (calendarPage == pages - 1) snprintf(line, sizeof line, T(S_PAGE_N), calendarPage + 1, pages);
     textRight(right, H - 10, &FreeSans9pt7b, line);
   }
 }
 
 static void drawCalendarView() {
   if (!timeKnown()) {
-    textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, netUp() ? "Setting the time..." : "No WiFi: no time yet");
-    textCentre(W / 2, H / 2 + 40, &FreeSans12pt7b, "The calendar needs to know the date");
+    textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, T(netUp() ? S_CLOCK_SETTING_TIME : S_CAL_NO_TIME));
+    textCentre(W / 2, H / 2 + 40, &FreeSans12pt7b, T(S_CAL_NEEDS_DATE));
     return;
   }
   const CalList &all = events;
@@ -1846,10 +2077,10 @@ static void drawCalendarView() {
     calAgenda(panel + 34, W - 20, BODY_Y + 2, H - 30, all);
   }
   if (calendarOk && calendarError.length()) {
-    String why = "Not updated: " + calendarError;
+    String why = TF(S_CAL_NOT_UPDATED, calendarError.c_str());
     if (TALL) {  // beside the page count, when there is one
       int room = W - 24;
-      if (calPages > 1) room -= textW(&FreeSans9pt7b, "99 / 99   swipe up for more") + 12;
+      if (calPages > 1) room -= textW(&FreeSans9pt7b, TF(S_PAGE_MORE, 99, 99).c_str()) + 12;
       text(12, H - 10, &FreeSans9pt7b, fitted(&FreeSans9pt7b, why, room).c_str());
     } else {  // the left panel's foot, up to three lines
       std::vector<String> lines = wrapped(&FreeSans9pt7b, why, 300 - 24);
@@ -1869,25 +2100,25 @@ static const int CAL_BUTTON_H = 64;
 static void calDrawDetail() {
   const CalEvent &e = calOpen;
   int y = BODY_Y + 20, width = W - 48;
-  std::vector<String> lines = wrapped(&FreeSansBold18pt7b, e.title[0] ? String(e.title) : String("(No title)"), width);
+  std::vector<String> lines = wrapped(&FreeSansBold18pt7b, e.title[0] ? String(e.title) : String(T(S_CAL_NO_TITLE)), width);
   for (int i = 0; i < (int)lines.size() && i < 4; i++) {
     text(24, y + 34, &FreeSansBold18pt7b, i == 3 && lines.size() > 4 ? (lines[i] + "...").c_str() : lines[i].c_str());
     y += 44;
   }
   y += 16;
-  char line[64], when[40];
+  char line[80], when[80];
   time_t s = e.start, en = e.allDay ? eventEnd(e) - 1 : e.end;
   struct tm st = *localtime(&s), et = *localtime(&en);
-  strftime(line, sizeof line, "%A %e %B %Y", &st);
+  tStrftime(line, sizeof line, T(S_FMT_DATE_LONG), &st);
   text(24, y + 26, &FreeSans12pt7b, line);
   y += 40;
   bool sameDay = st.tm_yday == et.tm_yday && st.tm_year == et.tm_year;
-  char from[8], to[24];
+  char from[8], to[48];
   strftime(from, sizeof from, "%H:%M", &st);
-  strftime(to, sizeof to, e.allDay ? "%a %e %b" : "%a %e %b %H:%M", &et);
+  tStrftime(to, sizeof to, T(e.allDay ? S_FMT_DAY_DATE : S_FMT_DAY_DATE_HM), &et);
   if (sameDay) timeRange(e, when, sizeof when);
-  else if (e.allDay) snprintf(when, sizeof when, "All day, until %s", to);
-  else snprintf(when, sizeof when, "%s, until %s", from, to);
+  else if (e.allDay) snprintf(when, sizeof when, T(S_CAL_ALL_DAY_UNTIL), to);
+  else snprintf(when, sizeof when, T(S_CAL_TIME_UNTIL), from, to);
   text(24, y + 26, &FreeSansBold12pt7b, when);
   y += 40;
   if (e.where[0])
@@ -1897,8 +2128,8 @@ static void calDrawDetail() {
       y += 32;
     }
   String label = calLabel(e.src);  // which calendar, when the links have labels
-  if (label.length() && y <= H - CAL_BUTTON_H - 70) text(24, y + 26, &FreeSans9pt7b, fitted(&FreeSans9pt7b, "Calendar: " + label, width).c_str());
-  pillButton(24, H - CAL_BUTTON_H - 16, W - 48, CAL_BUTTON_H, "Back", false, &FreeSansBold12pt7b);
+  if (label.length() && y <= H - CAL_BUTTON_H - 70) text(24, y + 26, &FreeSans9pt7b, fitted(&FreeSans9pt7b, TF(S_CAL_WHICH, label.c_str()), width).c_str());
+  pillButton(24, H - CAL_BUTTON_H - 16, W - 48, CAL_BUTTON_H, T(S_BACK), false, &FreeSansBold12pt7b);
 }
 
 // ---- taps, swipes and OK
@@ -1906,7 +2137,7 @@ static void calDrawDetail() {
 static void drawCalendar() {
   calHits.clear();
   if (!calendarConfigured())
-    return drawSetupHint("Your calendar", "Paste your calendar's secret iCal link (Google, iCloud, Outlook) in the setup app, under Calendar. Up to three; an InfluxDB bucket works too.");
+    return drawSetupHint(T(S_CAL_SETUP_TITLE), T(S_CAL_SETUP));
   if (calMode == CM_DETAIL) return calDrawDetail();
   drawCalendarView();
 }
@@ -2019,7 +2250,11 @@ static std::vector<String> wrapped(const GFXfont *font, const String &s, int wid
     if (line.length()) lines.push_back(line);
     while (textW(font, word.c_str()) > width) {  // one word wider than the line: cut it
       int n = word.length();
-      while (n > 1 && textW(font, word.substring(0, n).c_str()) > width) n--;
+      while (textW(font, word.substring(0, n).c_str()) > width) {  // whole characters, at least one
+        int back = utf8Back(word.c_str(), n);
+        if (back <= 0) break;
+        n = back;
+      }
       lines.push_back(word.substring(0, n));
       word = word.substring(n);
     }
@@ -2041,6 +2276,34 @@ static void checkBox(int x, int y, bool done) {  // 28 x 28, top-left at x, y
 
 static void render(bool full);
 
+// What the last AI answer did to an item, as its pill says it; nullptr: nothing.
+static const char *noteMarkLabel(const NoteItem &it) {
+  if (it.mark == NOTE_NEW) return T(S_NOTE_NEW);
+  if (it.mark == NOTE_CHANGED) return T(it.done ? S_NOTE_DONE_CAPS : S_NOTE_OPEN_CAPS);
+  return nullptr;
+}
+
+// A rounded pill, 30 tall: black with white words (new), or outlined (changed).
+static void notePill(int x, int y, int w, bool filled, const char *label) {
+  if (filled) canvas->fillRoundRect(x, y, w, 30, 15, INK);
+  else canvas->drawRoundRect(x, y, w, 30, 15, INK), canvas->drawRoundRect(x + 1, y + 1, w - 2, 28, 14, INK);
+  canvas->setTextColor(filled ? PAPER : INK);
+  textCentre(x + w / 2, y + 21, &FreeSansBold9pt7b, label);
+  canvas->setTextColor(INK);
+}
+
+// The marks go when the person leaves Notes, or two minutes after the answer.
+static void notesMarksTick() {
+  static bool wasIn;
+  bool in = screen == SCREEN_APP && app == APP_NOTES;
+  if (wasIn && !in && notesMarked()) notesClearMarks();
+  wasIn = in;
+  if (notesMarked() && millis() - notesMarkedAt() > 120000UL) {
+    notesClearMarks();
+    if (in && !notesTyping) render(false);
+  }
+}
+
 // ---- one item, full screen
 
 static int noteOpen = -1;          // the item shown full screen; -1: the list
@@ -2049,10 +2312,10 @@ static const int NOTE_BUTTON_H = 64;
 static const char *noteButtons[4];
 
 static void noteButtonsFor(const NoteItem &it) {
-  noteButtons[0] = "Back";
-  noteButtons[1] = it.task ? (it.done ? "Not done" : "Done") : "Make task";
-  noteButtons[2] = it.task ? "Make note" : "";
-  noteButtons[3] = noteDeleteArmed ? "Tap to delete" : "Delete";
+  noteButtons[0] = T(S_BACK);
+  noteButtons[1] = T(it.task ? (it.done ? S_NOTE_NOT_DONE : S_NOTE_DONE) : S_NOTE_MAKE_TASK);
+  noteButtons[2] = it.task ? T(S_NOTE_MAKE_NOTE) : "";
+  noteButtons[3] = T(noteDeleteArmed ? S_NOTE_TAP_DELETE : S_NOTE_DELETE);
 }
 
 static void noteButtonBox(int i, int &x, int &y, int &w) {
@@ -2076,27 +2339,33 @@ static void drawNoteOpen() {
   int y = BODY_Y + 40;
   if (it.task) checkBox(30, y - 24, it.done);
   else canvas->fillCircle(44, y - 10, 6, INK);
-  text(76, y, &FreeSansBold12pt7b, it.task ? (it.done ? "Task, done" : "Task") : "Note");
-  snprintf(line, sizeof line, "%d of %d", at + 1, (int)order.size());
+  const char *kind = T(it.task ? (it.done ? S_NOTE_TASK_DONE : S_NOTE_TASK) : S_NOTE_NOTE);
+  text(76, y, &FreeSansBold12pt7b, kind);
+  if (const char *mark = noteMarkLabel(it)) {
+    int markW = textW(&FreeSansBold9pt7b, mark) + 20;
+    notePill(76 + textW(&FreeSansBold12pt7b, kind) + 14, y - 22, markW, it.mark == NOTE_NEW, mark);
+  }
+  snprintf(line, sizeof line, T(S_N_OF_N), at + 1, (int)order.size());
   textRight(W - 30, y, &FreeSans12pt7b, line);
   if (it.added) {
     time_t t = it.added;
-    strftime(line, sizeof line, "added %a %e %b, %H:%M", localtime(&t));
-    text(76, y + 30, &FreeSans9pt7b, line);
+    tStrftime(line, sizeof line, T(S_NOTE_ADDED), localtime(&t));
+    text(76, y + 32, &FreeSans12pt7b, line);
   }
-  canvas->drawFastHLine(30, y + 44, W - 60, INK);
+  canvas->drawFastHLine(30, y + 48, W - 60, INK);
 
-  // The words, as large as fits.
-  int top = y + 56, bottom = H - NOTE_BUTTON_H - 24, width = W - 60;
-  const GFXfont *fonts[] = {&FreeSans18pt7b, &FreeSans12pt7b, &FreeSans9pt7b};
-  const int lineH[] = {42, 30, 24};
+  // The words, as large as fits: big and bold when they're short.
+  int top = y + 62, bottom = H - NOTE_BUTTON_H - 24, width = W - 60;
+  const GFXfont *fonts[] = {&FreeSansBold24pt7b, &FreeSans18pt7b, &FreeSans12pt7b, &FreeSans9pt7b};
+  const int lineH[] = {58, 44, 32, 24};
+  const int FONTS = 4;
   int f = 0;
   std::vector<String> lines;
-  for (; f < 3; f++) {
+  for (; f < FONTS; f++) {
     lines = wrapped(fonts[f], it.text, width);
     if ((int)lines.size() * lineH[f] <= bottom - top) break;
   }
-  if (f == 3) f = 2;
+  if (f == FONTS) f = FONTS - 1;
   int maxLines = (bottom - top) / lineH[f];
   for (int i = 0; i < (int)lines.size() && i < maxLines; i++) {
     String shown = i == maxLines - 1 && (int)lines.size() > maxLines ? lines[i] + "..." : lines[i];
@@ -2156,7 +2425,7 @@ static void noteOpenTap(int x, int y) {
       notesDelete(noteOpen);
       noteDeleteArmed = false;
       noteOpen = -1;
-      notesSay = "Deleted.";
+      notesSay = T(S_NOTE_DELETED);
       break;
   }
   render(false);
@@ -2166,7 +2435,7 @@ static void noteOpenTap(int x, int y) {
 
 static void drawNotes(const char *busy = nullptr) {
   if (notesTyping && !busy) return keyboardDraw(noteKb, BODY_Y + 4);
-  if (!busy && noteJobPending()) busy = "Thinking... tap to cancel";  // OK cancels too
+  if (!busy && noteJobPending()) busy = T(S_THINKING_CANCEL);  // OK cancels too
   if (noteOpen >= 0 && !busy) {
     drawNoteOpen();
     if (noteOpen >= 0) return;
@@ -2177,7 +2446,7 @@ static void drawNotes(const char *busy = nullptr) {
   int pages = max(1, ((int)order.size() + NOTE_ROWS - 1) / NOTE_ROWS);
   if (notesPage >= pages) notesPage = 0;
 
-  if (order.empty()) textCentre(W / 2, H / 2 - 30, &FreeSansBold18pt7b, "No tasks or notes yet");
+  if (order.empty()) textCentre(W / 2, H / 2 - 30, &FreeSansBold18pt7b, T(S_NOTES_EMPTY));
   for (int row = 0; row < NOTE_ROWS; row++) {
     int at = notesPage * NOTE_ROWS + row;
     if (at >= (int)order.size()) break;
@@ -2187,10 +2456,13 @@ static void drawNotes(const char *busy = nullptr) {
     if (it.task) checkBox(30, y + 8, it.done);
     else canvas->fillCircle(44, y + 22, 5, INK);
     const GFXfont *font = it.task && !it.done ? &FreeSansBold12pt7b : &FreeSans12pt7b;
-    bool longer = textW(font, it.text.c_str()) > W - 130;
-    String shown = fitted(font, it.text, W - (longer ? 130 : 110));
+    const char *mark = noteMarkLabel(it);
+    int markW = mark ? textW(&FreeSansBold9pt7b, mark) + 20 : 0, room = W - 130 - (mark ? markW + 10 : 0);
+    bool longer = textW(font, it.text.c_str()) > room;
+    String shown = fitted(font, it.text, longer ? room : room + 20);
     text(76, y + 31, font, shown.c_str());
     if (it.done) canvas->drawFastHLine(76, y + 23, textW(font, shown.c_str()), INK);
+    if (mark) notePill((longer ? W - 54 : W - 34) - markW, y + 8, markW, it.mark == NOTE_NEW, mark);
     if (longer) {  // there's more: a small arrow says tap to read it all
       int ax = W - 44, ay = y + 22;
       for (int k = 0; k < 3; k++) {
@@ -2215,7 +2487,7 @@ static void drawNotes(const char *busy = nullptr) {
     textRightEdge -= textW(&FreeSans12pt7b, page) + 16;
   }
   const GFXfont *font = busy ? &FreeSansBold12pt7b : &FreeSans12pt7b;
-  String said = busy ? String(busy) : notesSay;
+  String said = busy ? String(busy) : notesSay.length() ? notesSay : String(T(S_NOTES_HINT));
   int width = textRightEdge - 30;
   if (textW(font, said.c_str()) <= width) return text(30, stripY + 34, font, said.c_str());
   // Too long for one line (portrait's strip is narrow): two smaller lines.
@@ -2232,55 +2504,61 @@ static void drawNotes(const char *busy = nullptr) {
 // Everything the board knows about itself, as label and value pairs.
 static std::vector<std::pair<String, String>> aboutLines() {
   std::vector<std::pair<String, String>> out;
-  char v[96];
-  auto add = [&](const char *label, const char *value) { out.push_back({label, value}); };
-  add("Version", updVersion());
-  add("Firmware", "Sticky OS, built " __DATE__ " " __TIME__ ", commit " STICKY_STR(STICKY_COMMIT));
-  add("Name", deviceName().c_str());
-  snprintf(v, sizeof v, "%s rev %d, %d cores, %lu MHz", ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores(), (unsigned long)ESP.getCpuFreqMHz());
-  add("Chip", v);
-  snprintf(v, sizeof v, "%u MB flash, %u MB PSRAM", (unsigned)(ESP.getFlashChipSize() >> 20), (unsigned)((ESP.getPsramSize() + (1 << 19)) >> 20));
-  add("Memory chips", v);
-  snprintf(v, sizeof v, "%u KB (lowest %u), PSRAM %u KB", (unsigned)(ESP.getFreeHeap() >> 10), (unsigned)(ESP.getMinFreeHeap() >> 10), (unsigned)(ESP.getFreePsram() >> 10));
-  add("Free memory", v);
-  add("MAC address", netMac().c_str());
+  char v[128], num[16];
+  auto add = [&](StrId label, const char *value) { out.push_back({T(label), value}); };
+  add(S_ABOUT_VERSION, updVersion());
+  snprintf(v, sizeof v, T(S_ABOUT_FIRMWARE_V), __DATE__ " " __TIME__, STICKY_STR(STICKY_COMMIT));
+  add(S_ABOUT_FIRMWARE, v);
+  add(S_ABOUT_NAME, deviceName().c_str());
+  add(S_ABOUT_LANGUAGE, i18nInfo().name);
+  snprintf(v, sizeof v, T(S_ABOUT_CHIP_V), ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores(), (unsigned long)ESP.getCpuFreqMHz());
+  add(S_ABOUT_CHIP, v);
+  snprintf(v, sizeof v, T(S_ABOUT_MEMORY_CHIPS_V), (unsigned)(ESP.getFlashChipSize() >> 20), (unsigned)((ESP.getPsramSize() + (1 << 19)) >> 20));
+  add(S_ABOUT_MEMORY_CHIPS, v);
+  snprintf(v, sizeof v, T(S_ABOUT_FREE_V), (unsigned)(ESP.getFreeHeap() >> 10), (unsigned)(ESP.getMinFreeHeap() >> 10), (unsigned)(ESP.getFreePsram() >> 10));
+  add(S_ABOUT_FREE, v);
+  add(S_ABOUT_MAC, netMac().c_str());
   if (netUp()) snprintf(v, sizeof v, "%s, %d dBm", netName().c_str(), netSignal());
-  else strlcpy(v, "not connected", sizeof v);
-  add("WiFi", v);
-  add("IP address", netUp() ? netAddress().c_str() : "-");
-  if (telemetryConfigured()) add("Telemetry", telemetryStatus[0] ? telemetryStatus : "not sent yet");
-  add("Bluetooth", "only in setup mode: Settings > Connect to the setup app");
-  snprintf(v, sizeof v, "%u of %u set; change them at " SETUP_URL_SHORT, (unsigned)cfg::setCount(), (unsigned)cfg::keyCount());
-  add("Settings", v);
+  else utf8Copy(v, T(S_NOT_CONNECTED_LOWER), sizeof v);
+  add(S_ABOUT_WIFI, v);
+  add(S_ABOUT_IP, netUp() ? netAddress().c_str() : "-");
+  if (telemetryConfigured()) add(S_ABOUT_TELEMETRY, telemetryStatus[0] ? telemetryStatus : T(S_ABOUT_NOT_SENT));
+  add(S_ABOUT_BLUETOOTH, T(S_ABOUT_BLUETOOTH_V));
+  snprintf(v, sizeof v, T(S_ABOUT_SETTINGS_V), (unsigned)cfg::setCount(), (unsigned)cfg::keyCount(), SETUP_URL_SHORT);
+  add(S_ABOUT_SETTINGS, v);
   time_t t = time(nullptr);
   if (timeKnown()) strftime(v, sizeof v, "%Y-%m-%d %H:%M:%S %Z", localtime(&t));
-  else strlcpy(v, "not set", sizeof v);
-  add("Time", v);
-  snprintf(v, sizeof v, "%s, %d x %d, %s", panelName, NW, NH, rotation & 1 ? "portrait" : "landscape");
-  add("Screen", v);
-  if (touchOk) snprintf(v, sizeof v, "GT911 at 0x%02X, %lu touches, %lu of %lu reads failed", touch.address(),
+  else utf8Copy(v, T(S_NOT_SET), sizeof v);
+  add(S_ABOUT_TIME, v);
+  snprintf(v, sizeof v, "%s, %d x %d, %s", panelName, NW, NH, T(rotation & 1 ? S_PORTRAIT_LOWER : S_LANDSCAPE_LOWER));
+  add(S_ABOUT_SCREEN, v);
+  if (touchOk) snprintf(v, sizeof v, T(S_ABOUT_TOUCH_V), touch.address(),
                         (unsigned long)touchDowns, (unsigned long)touchFails, (unsigned long)touchReads);
-  else strlcpy(v, "not found", sizeof v);
-  add("Touch", v);
-  if (now.battery) snprintf(v, sizeof v, "%d%%, %.2f V, %d mA, %s", now.percent, now.millivolts / 1000.0f, now.milliamps, now.usb ? "USB power" : "on battery");
-  else strlcpy(v, "gauge not found", sizeof v);
-  add("Battery", v);
-  if (now.climate) snprintf(v, sizeof v, "%.1f C, %.0f%% humidity", now.tempC, now.humidity);
-  else strlcpy(v, "sensor not found", sizeof v);
-  add("Climate", v);
-  if (readMotion()) snprintf(v, sizeof v, "x %d, y %d, z %d (thousandths of g)", motionMg[0], motionMg[1], motionMg[2]);
-  else strlcpy(v, "sensor not found", sizeof v);
-  add("Motion", v);
-  if (!photosCardIn()) strlcpy(v, "no card", sizeof v);
-  else snprintf(v, sizeof v, "card in, %d photos", photosCount());
-  add("microSD", v);
-  snprintf(v, sizeof v, "%d photo%s, %u of %u KB used", photoStoreCount(), photoStoreCount() == 1 ? "" : "s", (unsigned)(LittleFS.usedBytes() / 1024), (unsigned)(LittleFS.totalBytes() / 1024));
-  add("Board storage", v);
-  snprintf(v, sizeof v, "%d tasks and notes, %d events", (int)notesItems().size(), (int)events.size());
-  add("Saved", v);
+  else utf8Copy(v, T(S_NOT_FOUND), sizeof v);
+  add(S_ABOUT_TOUCH, v);
+  snprintf(num, sizeof num, "%.2f", now.millivolts / 1000.0f);
+  decimalFix(num);
+  if (now.battery) snprintf(v, sizeof v, T(S_ABOUT_BATTERY_V), now.percent, num, now.milliamps, T(now.usb ? S_USB_POWER : S_ON_BATTERY));
+  else utf8Copy(v, T(S_GAUGE_NOT_FOUND), sizeof v);
+  add(S_ABOUT_BATTERY, v);
+  snprintf(num, sizeof num, "%.1f", now.tempC);
+  decimalFix(num);
+  if (now.climate) snprintf(v, sizeof v, T(S_ABOUT_CLIMATE_V), num, now.humidity);
+  else utf8Copy(v, T(S_SENSOR_NOT_FOUND), sizeof v);
+  add(S_ABOUT_CLIMATE, v);
+  if (readMotion()) snprintf(v, sizeof v, T(S_ABOUT_MOTION_V), motionMg[0], motionMg[1], motionMg[2]);
+  else utf8Copy(v, T(S_SENSOR_NOT_FOUND), sizeof v);
+  add(S_ABOUT_MOTION, v);
+  if (!photosCardIn()) utf8Copy(v, T(S_NO_CARD), sizeof v);
+  else snprintf(v, sizeof v, T(S_CARD_IN), TP(S_PHOTOS_N, photosCount()).c_str());
+  add(S_ABOUT_SD, v);
+  snprintf(v, sizeof v, T(S_ABOUT_STORAGE_V), TP(S_PHOTOS_N, photoStoreCount()).c_str(), (unsigned)(LittleFS.usedBytes() / 1024), (unsigned)(LittleFS.totalBytes() / 1024));
+  add(S_ABOUT_STORAGE, v);
+  snprintf(v, sizeof v, T(S_ABOUT_SAVED_V), (int)notesItems().size(), (int)events.size());
+  add(S_ABOUT_SAVED, v);
   uint32_t up = millis() / 1000;
-  snprintf(v, sizeof v, "%lu h %lu min, reset reason %d", (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (int)esp_reset_reason());
-  add("Running for", v);
+  snprintf(v, sizeof v, T(S_ABOUT_RUNNING_V), (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (int)esp_reset_reason());
+  add(S_ABOUT_RUNNING, v);
   return out;
 }
 
@@ -2305,7 +2583,7 @@ static bool appShown(int a);
 static std::vector<int> homeApps();
 static void openApp(int next);
 
-enum SetIcon { SI_ROTATION, SI_TEMPERATURE, SI_SOUND, SI_SLEEP, SI_WIFI, SI_APPS, SI_ABOUT, SI_SETUP, SI_ADD, SI_UPDATE, SI_CHECK };
+enum SetIcon { SI_ROTATION, SI_TEMPERATURE, SI_SOUND, SI_SLEEP, SI_WIFI, SI_APPS, SI_ABOUT, SI_SETUP, SI_ADD, SI_UPDATE, SI_CHECK, SI_LANGUAGE };
 // A list row's icon: -1 none, 0.. a settings picture (SetIcon), 100 + n app
 // n's icon, ICON_SIGNAL + bars * 2 + locked: a network's signal (Settings -> WiFi).
 static const int ICON_SIGNAL = 200;
@@ -2358,6 +2636,14 @@ static void settingsIcon(int which, int cx, int cy) {  // about 32 x 32
       canvas->fillRect(cx - 15, cy + 3, 4, 11, INK);
       canvas->fillRect(cx + 11, cy + 3, 4, 11, INK);
       canvas->fillRect(cx - 15, cy + 11, 30, 4, INK);
+      break;
+    case SI_LANGUAGE:  // a globe: a circle, its equator and a meridian
+      ring(cx, cy, 14, 2);
+      canvas->drawFastHLine(cx - 13, cy, 27, INK);
+      canvas->drawFastHLine(cx - 11, cy - 7, 23, INK);
+      canvas->drawFastHLine(cx - 11, cy + 7, 23, INK);
+      for (int k = 0; k < 2; k++) canvas->drawEllipse(cx, cy, 6 - k, 13, INK);
+      canvas->drawFastVLine(cx, cy - 13, 27, INK);
       break;
     case SI_CHECK:  // a circle of arrow: look again
       for (int k = 0; k < 3; k++) {
@@ -2412,7 +2698,7 @@ static int listRowHeight(const ListRow &r) {
   if (r.kind == ROW_HEADER) return 44;
   if (r.kind == ROW_BACK) return 58;
   int lines = r.summary.length() ? wrapped(r.kind == ROW_INFO ? &FreeSansBold12pt7b : &FreeSans12pt7b, r.summary, listTextW(r)).size() : 0;
-  return 22 + LIST_LINE * (1 + lines) - (lines ? 4 : 0) + 4;
+  return 22 + LIST_LINE * ((r.title.length() ? 1 : 0) + lines) - (lines ? 4 : 0) + 4;  // no title: the summary alone
 }
 
 // Splits the rows into pages that fit under the status bar; a heading never ends a page.
@@ -2466,7 +2752,7 @@ static void drawList(const std::vector<ListRow> &rows) {
       const GFXfont *titleFont = info ? &FreeSans12pt7b : &FreeSansBold12pt7b;
       int titleY = r.summary.length() ? y + 30 : cy + 8;  // alone, the title sits level with its switch or circle
       text(x, titleY, titleFont, fitted(titleFont, r.title, listTextW(r)).c_str());
-      int ly = y + 30 + LIST_LINE - 2;
+      int ly = r.title.length() ? y + 30 + LIST_LINE - 2 : y + 30;
       if (r.summary.length())
         for (auto &line : wrapped(info ? &FreeSansBold12pt7b : &FreeSans12pt7b, r.summary, listTextW(r))) {
           text(x, ly, info ? &FreeSansBold12pt7b : &FreeSans12pt7b, line.c_str());
@@ -2485,8 +2771,8 @@ static void drawList(const std::vector<ListRow> &rows) {
     int top = BODY_Y + 8, len = H - 34 - top, n = pages.size();
     canvas->drawRoundRect(W - 10, top, 6, len, 3, INK);
     canvas->fillRoundRect(W - 10, top + len * listPage / n, 6, len / n, 3, INK);
-    char where[32];
-    snprintf(where, sizeof where, "%d / %d   %s", listPage + 1, n, listPage + 1 < n ? "swipe up for more" : "swipe down to go back");
+    char where[80];
+    snprintf(where, sizeof where, "%d / %d   %s", listPage + 1, n, T(listPage + 1 < n ? S_LIST_MORE : S_LIST_BACK));
     textCentre(W / 2, H - 10, &FreeSans9pt7b, where);
   }
 }
@@ -2519,36 +2805,42 @@ static void wifiStartJoin(const String &ssid, const String &pass, bool saved);
 
 static std::vector<ListRow> settingsRows() {
   std::vector<ListRow> rows;
-  char v[128];
+  char v[160];
   auto add = [&](int kind, int id, int icon, String title, String summary, bool on = false) {
     rows.push_back({kind, id, icon, title, summary, on});
   };
   switch (settingsPage) {
+    case SP_LANGUAGE:
+      add(ROW_BACK, -1, -1, T(S_SET_LANGUAGE), "");
+      add(ROW_INFO, -1, -1, "", T(S_SET_LANGUAGE_HINT));
+      for (int l = 0; l < LANG_COUNT; l++)
+        add(ROW_RADIO, l, -1, LANGS[l].name, "", i18nLang() == l);  // each by its own name
+      return rows;
     case SP_ROTATION:
-      add(ROW_BACK, -1, -1, "Screen rotation", "");
+      add(ROW_BACK, -1, -1, T(S_SET_ROTATION), "");
       for (int t = 0; t < TURN_COUNT; t++)
-        add(ROW_RADIO, t, -1, TURN_NAMES[t], t == TURN_AUTO ? "Follows the way the board is held" : "", settings.turn == t);
+        add(ROW_RADIO, t, -1, T(TURN_LABELS[t]), t == TURN_AUTO ? T(S_SET_ROTATION_AUTO_HINT) : "", settings.turn == t);
       return rows;
     case SP_TEMPERATURE:
-      add(ROW_BACK, -1, -1, "Temperature", "");
-      add(ROW_RADIO, 0, -1, "Celsius", "", !settings.fahrenheit);
-      add(ROW_RADIO, 1, -1, "Fahrenheit", "", settings.fahrenheit);
+      add(ROW_BACK, -1, -1, T(S_SET_TEMPERATURE), "");
+      add(ROW_RADIO, 0, -1, T(S_CELSIUS), "", !settings.fahrenheit);
+      add(ROW_RADIO, 1, -1, T(S_FAHRENHEIT), "", settings.fahrenheit);
       return rows;
     case SP_SLEEP:
-      add(ROW_BACK, -1, -1, "Sleep on battery", "");
+      add(ROW_BACK, -1, -1, T(S_SET_SLEEP), "");
       for (int i = 0; i < 3; i++) {
-        if (SLEEP_MINUTES[i]) snprintf(v, sizeof v, "After %d minutes", SLEEP_MINUTES[i]);
-        else strlcpy(v, "Never", sizeof v);
-        add(ROW_RADIO, i, -1, v, i ? "without a touch or a button" : "", settings.sleepChoice == i);
+        if (SLEEP_MINUTES[i]) snprintf(v, sizeof v, T(S_AFTER_MINUTES), SLEEP_MINUTES[i]);
+        else utf8Copy(v, T(S_NEVER), sizeof v);
+        add(ROW_RADIO, i, -1, v, i ? T(S_SET_SLEEP_HINT) : "", settings.sleepChoice == i);
       }
       return rows;
     case SP_APPS:
-      add(ROW_BACK, -1, -1, "Home screen apps", "");
+      add(ROW_BACK, -1, -1, T(S_SET_HOME_APPS), "");
       for (int a : APP_ORDER)
-        add(ROW_SWITCH, a, 100 + a, APP_NAMES[a], a == APP_SETTINGS ? "Always shown" : appShown(a) ? "Shown" : "Hidden", appShown(a));
-      add(ROW_HEADER, -1, -1, "IN THE GAMES FOLDER", "");
+        add(ROW_SWITCH, a, 100 + a, appName(a), T(a == APP_SETTINGS ? S_ALWAYS_SHOWN : appShown(a) ? S_SHOWN : S_HIDDEN), appShown(a));
+      add(ROW_HEADER, -1, -1, T(S_SET_GAMES_FOLDER), "");
       for (int g = 0; g < GAME_COUNT; g++)
-        add(ROW_SWITCH, 1000 + g, ICON_GAME + g, GAME_NAMES[g], gameShown(g) ? "Shown" : "Hidden", gameShown(g));
+        add(ROW_SWITCH, 1000 + g, ICON_GAME + g, gameName(g), T(gameShown(g) ? S_SHOWN : S_HIDDEN), gameShown(g));
       return rows;
     case SP_WIFI: {
       // The saved networks, in the order they're tried, the one in use
@@ -2559,26 +2851,26 @@ static std::vector<ListRow> settingsRows() {
       xSemaphoreTake(dataLock, portMAX_DELAY);
       status = wifiStatus, failed = wifiJoinFailed;
       xSemaphoreGive(dataLock);
-      add(ROW_BACK, -1, -1, "WiFi", "");
-      if (status.length()) add(ROW_INFO, -1, -1, failed ? "Didn't connect" : "Done", status);
-      add(ROW_HEADER, -1, -1, "SAVED NETWORKS, TRIED IN THIS ORDER", "");
-      if (nets.empty()) add(ROW_INFO, -1, -1, "None yet", "Add one below, or from the setup app");
+      add(ROW_BACK, -1, -1, T(S_SET_WIFI), "");
+      if (status.length()) add(ROW_INFO, -1, -1, T(failed ? S_DIDNT_CONNECT : S_DONE), status);
+      add(ROW_HEADER, -1, -1, T(S_SET_SAVED_NETWORKS), "");
+      if (nets.empty()) add(ROW_INFO, -1, -1, T(S_NONE_YET), T(S_SET_ADD_BELOW));
       for (size_t i = 0; i < nets.size(); i++) {
         bool on = current.length() && nets[i].ssid == current;
-        if (on) snprintf(v, sizeof v, "Connected, %d dBm", netSignal());
-        else snprintf(v, sizeof v, "Saved%s", nets[i].pass.length() ? "" : ", open network");
+        if (on) snprintf(v, sizeof v, T(S_CONNECTED_DBM), netSignal());
+        else utf8Copy(v, T(nets[i].pass.length() ? S_SAVED : S_SAVED_OPEN), sizeof v);
         add(ROW_LINK, 200 + i, ICON_SIGNAL + (on ? netBars() : 0) * 2 + (nets[i].pass.length() > 0), nets[i].ssid, v);
       }
       add(ROW_HEADER, -1, -1, "", "");
       bool full = nets.size() >= (size_t)cfg::MAX_WIFI;
-      add(ROW_LINK, 300, SI_ADD, "Add network", full ? "8 networks saved: forget one first" : "Scan for networks nearby");
-      add(ROW_LINK, 301, SI_WIFI, "Connect again", "Join the first saved network that answers");
+      add(ROW_LINK, 300, SI_ADD, T(S_ADD_NETWORK), T(full ? S_NETWORKS_FULL : S_SCAN_NEARBY));
+      add(ROW_LINK, 301, SI_WIFI, T(S_CONNECT_AGAIN), T(S_CONNECT_AGAIN_HINT));
       return rows;
     }
     case SP_WIFI_SCAN: {
-      add(ROW_BACK, -1, -1, "Add network", "");
+      add(ROW_BACK, -1, -1, T(S_ADD_NETWORK), "");
       if (!wifiScanned) {
-        add(ROW_INFO, -1, -1, "Scanning...", "Looking for networks nearby");
+        add(ROW_INFO, -1, -1, T(S_SCANNING), T(S_LOOKING));
         return rows;
       }
       std::vector<NetSeen> seen;
@@ -2587,37 +2879,37 @@ static std::vector<ListRow> settingsRows() {
       seen = wifiSeen, status = wifiStatus;
       xSemaphoreGive(dataLock);
       std::vector<WifiCred> nets = cfg::wifiNetworks();
-      if (seen.empty()) add(ROW_INFO, -1, -1, "No networks found", status.length() ? status : String("Move closer to the router, then scan again"));
+      if (seen.empty()) add(ROW_INFO, -1, -1, T(S_NO_NETWORKS), status.length() ? status : String(T(S_MOVE_CLOSER)));
       for (size_t i = 0; i < seen.size(); i++) {
         bool saved = false;
         for (const WifiCred &n : nets) saved |= n.ssid == seen[i].ssid;
-        snprintf(v, sizeof v, "%s, %d dBm", saved ? (seen[i].secure ? "Saved, secured" : "Saved, open") : seen[i].secure ? "Secured" : "Open", seen[i].rssi);
+        snprintf(v, sizeof v, "%s, %d dBm", T(saved ? (seen[i].secure ? S_SAVED_SECURED : S_SAVED_OPEN_SHORT) : seen[i].secure ? S_SECURED : S_OPEN), seen[i].rssi);
         add(ROW_LINK, 400 + i, ICON_SIGNAL + rssiBars(seen[i].rssi) * 2 + seen[i].secure, seen[i].ssid, v);
       }
       add(ROW_HEADER, -1, -1, "", "");
-      add(ROW_LINK, 302, SI_WIFI, "Scan again", "");
+      add(ROW_LINK, 302, SI_WIFI, T(S_SCAN_AGAIN), "");
       return rows;
     }
     case SP_WIFI_NET: {
       std::vector<WifiCred> nets = cfg::wifiNetworks();
       if (wifiNetOpen < 0 || wifiNetOpen >= (int)nets.size()) {
-        add(ROW_BACK, -1, -1, "WiFi", "");
-        add(ROW_INFO, -1, -1, "Gone", "This network isn't saved any more");
+        add(ROW_BACK, -1, -1, T(S_SET_WIFI), "");
+        add(ROW_INFO, -1, -1, T(S_GONE), T(S_NOT_SAVED_ANY_MORE));
         return rows;
       }
       const WifiCred &n = nets[wifiNetOpen];
       bool on = netName() == n.ssid;
       add(ROW_BACK, -1, -1, n.ssid, "");
-      if (on) snprintf(v, sizeof v, "Connected, %s, %d dBm", netAddress().c_str(), netSignal());
-      else strlcpy(v, "Saved, not in use now", sizeof v);
-      add(ROW_INFO, -1, -1, "Status", v);
-      snprintf(v, sizeof v, "%d of %d in the list, tried in order", wifiNetOpen + 1, (int)nets.size());
-      add(ROW_INFO, -1, -1, "Order", v);
-      add(ROW_INFO, -1, -1, "Security", n.pass.length() ? "Password saved (it's never shown)" : "Open network, no password");
+      if (on) snprintf(v, sizeof v, T(S_CONNECTED_IP), netAddress().c_str(), netSignal());
+      else utf8Copy(v, T(S_SAVED_NOT_IN_USE), sizeof v);
+      add(ROW_INFO, -1, -1, T(S_STATUS), v);
+      snprintf(v, sizeof v, T(S_ORDER_V), wifiNetOpen + 1, (int)nets.size());
+      add(ROW_INFO, -1, -1, T(S_ORDER), v);
+      add(ROW_INFO, -1, -1, T(S_SECURITY), T(n.pass.length() ? S_PASSWORD_SAVED : S_OPEN_NO_PASSWORD));
       add(ROW_HEADER, -1, -1, "", "");
-      add(ROW_LINK, 500, SI_WIFI, "Connect now", on ? "Connected: this joins it again" : "Join this network now");
-      add(ROW_LINK, 501, -1, wifiForgetArmed ? "Tap again to forget it" : "Forget",
-          wifiForgetArmed ? "Or go back to keep it" : "Removes it and its password from the board");
+      add(ROW_LINK, 500, SI_WIFI, T(S_CONNECT_NOW), T(on ? S_CONNECTED_REJOIN : S_JOIN_NOW));
+      add(ROW_LINK, 501, -1, T(wifiForgetArmed ? S_FORGET_ARMED : S_FORGET),
+          T(wifiForgetArmed ? S_FORGET_KEEP : S_FORGET_HINT));
       return rows;
     }
     case SP_UPDATE: {
@@ -2625,68 +2917,66 @@ static std::vector<ListRow> settingsRows() {
       // release to install with its notes, Check now, and the auto switch.
       UpdInfo u = updInfo();
       bool checking = updCheckAsk || u.state == UPD_CHECKING;
-      add(ROW_BACK, -1, -1, "Software update", "");
-      add(ROW_INFO, -1, -1, "This version", updVersion());
-      add(ROW_INFO, -1, -1, u.failed && !checking ? "Didn't work" : "Status", checking ? String("Checking...") : u.status);
+      add(ROW_BACK, -1, -1, T(S_SET_UPDATE), "");
+      add(ROW_INFO, -1, -1, T(S_THIS_VERSION), updVersion());
+      add(ROW_INFO, -1, -1, T(u.failed && !checking ? S_DIDNT_WORK : S_STATUS), checking ? String(T(S_CHECKING)) : u.status);
       if (u.checkedAt) {
-        strftime(v, sizeof v, "%a %d %b, %H:%M", localtime(&u.checkedAt));
+        tStrftime(v, sizeof v, T(S_FMT_CHECKED), localtime(&u.checkedAt));
       } else if (u.checkedMs) {
         uint32_t ago = (millis() - u.checkedMs) / 60000;
-        if (ago) snprintf(v, sizeof v, "%lu min ago", (unsigned long)ago);
-        else strlcpy(v, "Just now", sizeof v);
+        if (ago) snprintf(v, sizeof v, T(S_MIN_AGO), (unsigned long)ago);
+        else utf8Copy(v, T(S_JUST_NOW), sizeof v);
       } else {
-        strlcpy(v, "Not yet: 2 minutes after the start, then every day", sizeof v);
+        utf8Copy(v, T(S_NOT_YET_CHECKED), sizeof v);
       }
-      add(ROW_INFO, -1, -1, "Last checked", v);
-      if (updNote.length()) add(ROW_INFO, -1, -1, "Not now", updNote);
-      if (u.available && !checking) add(ROW_LINK, 600, SI_UPDATE, "Install " + u.latest, u.notes.length() ? u.notes : String("No release notes"));
+      add(ROW_INFO, -1, -1, T(S_LAST_CHECKED), v);
+      if (updNote.length()) add(ROW_INFO, -1, -1, T(S_NOT_NOW), updNote);
+      if (u.available && !checking) add(ROW_LINK, 600, SI_UPDATE, TF(S_INSTALL, u.latest.c_str()), u.notes.length() ? u.notes : String(T(S_NO_NOTES)));
       add(ROW_HEADER, -1, -1, "", "");
-      add(ROW_LINK, 601, SI_CHECK, "Check now", checking ? "Checking..." : cfg::str("update.url").length() ? "Ask the release feed for a newer version" : "Ask GitHub for a newer version");
+      add(ROW_LINK, 601, SI_CHECK, T(S_CHECK_NOW), T(checking ? S_CHECKING : cfg::str("update.url").length() ? S_ASK_FEED : S_ASK_GITHUB));
       bool autoOn = cfg::flag("update.auto");
-      add(ROW_SWITCH, 602, -1, "Install updates automatically",
-          !autoOn ? "Off: this page shows when there's one" : updIsDev() ? "On, but not on this dev build" : "When idle, on USB or above 50% battery", autoOn);
+      add(ROW_SWITCH, 602, -1, T(S_AUTO_UPDATE), T(!autoOn ? S_AUTO_OFF : updIsDev() ? S_AUTO_DEV : S_AUTO_ON), autoOn);
       return rows;
     }
   }
-  add(ROW_HEADER, -1, -1, "DISPLAY", "");
-  if (settings.turn == TURN_AUTO) snprintf(v, sizeof v, "Automatic, now %s", rotation & 1 ? "portrait" : "landscape");
-  else strlcpy(v, TURN_NAMES[settings.turn], sizeof v);
-  add(ROW_LINK, SP_ROTATION, SI_ROTATION, "Screen rotation", v);
-  add(ROW_LINK, SP_TEMPERATURE, SI_TEMPERATURE, "Temperature", settings.fahrenheit ? "Fahrenheit" : "Celsius");
-  add(ROW_HEADER, -1, -1, "SOUND AND POWER", "");
-  add(ROW_SWITCH, 100, SI_SOUND, "Button sounds", settings.sound ? "A beep for buttons and taps" : "Silent (the timer still rings)", settings.sound);
-  if (SLEEP_MINUTES[settings.sleepChoice]) snprintf(v, sizeof v, "After %d minutes without a touch", SLEEP_MINUTES[settings.sleepChoice]);
-  else strlcpy(v, "Never", sizeof v);
-  add(ROW_LINK, SP_SLEEP, SI_SLEEP, "Sleep on battery", v);
-  add(ROW_HEADER, -1, -1, "CONNECTIONS", "");
+  add(ROW_HEADER, -1, -1, T(S_SET_DISPLAY), "");
+  add(ROW_LINK, SP_LANGUAGE, SI_LANGUAGE, T(S_SET_LANGUAGE), i18nInfo().name);
+  if (settings.turn == TURN_AUTO) snprintf(v, sizeof v, T(S_AUTO_NOW), T(rotation & 1 ? S_PORTRAIT_LOWER : S_LANDSCAPE_LOWER));
+  else utf8Copy(v, T(TURN_LABELS[settings.turn]), sizeof v);
+  add(ROW_LINK, SP_ROTATION, SI_ROTATION, T(S_SET_ROTATION), v);
+  add(ROW_LINK, SP_TEMPERATURE, SI_TEMPERATURE, T(S_SET_TEMPERATURE), T(settings.fahrenheit ? S_FAHRENHEIT : S_CELSIUS));
+  add(ROW_HEADER, -1, -1, T(S_SET_SOUND_POWER), "");
+  add(ROW_SWITCH, 100, SI_SOUND, T(S_BUTTON_SOUNDS), T(settings.sound ? S_SOUND_ON : S_SOUND_OFF), settings.sound);
+  if (SLEEP_MINUTES[settings.sleepChoice]) snprintf(v, sizeof v, T(S_SLEEP_AFTER), SLEEP_MINUTES[settings.sleepChoice]);
+  else utf8Copy(v, T(S_NEVER), sizeof v);
+  add(ROW_LINK, SP_SLEEP, SI_SLEEP, T(S_SET_SLEEP), v);
+  add(ROW_HEADER, -1, -1, T(S_SET_CONNECTIONS), "");
   if (netUp()) snprintf(v, sizeof v, "%s, %s, %d dBm", netName().c_str(), netAddress().c_str(), netSignal());
-  else if (cfg::wifiNetworks().empty()) strlcpy(v, "No networks saved: tap to add one", sizeof v);
-  else strlcpy(v, "Not connected", sizeof v);
-  add(ROW_LINK, SP_WIFI, SI_WIFI, "WiFi", v);
-  add(ROW_HEADER, -1, -1, "APPS", "");
-  snprintf(v, sizeof v, "%d of %d apps shown", (int)homeApps().size(), APP_COUNT);
-  add(ROW_LINK, SP_APPS, SI_APPS, "Home screen", v);
-  add(ROW_SWITCH, 104, 100 + APP_QUOTE, "Quotes from the internet",
-      cfg::flag("quotes.online") ? "A new quote each day from ZenQuotes" : "Off: the board's own list only", cfg::flag("quotes.online"));
-  add(ROW_SWITCH, 105, 100 + APP_GAMES, "AI in games",
-      cfg::flag("games.ai") ? "Quiz and Adventure ask the AI for new questions and stories" : "Off: the board's own quiz and story only", cfg::flag("games.ai"));
-  add(ROW_HEADER, -1, -1, "SYSTEM", "");
+  else if (cfg::wifiNetworks().empty()) utf8Copy(v, T(S_NO_NETWORKS_TAP), sizeof v);
+  else utf8Copy(v, T(S_NOT_CONNECTED), sizeof v);
+  add(ROW_LINK, SP_WIFI, SI_WIFI, T(S_SET_WIFI), v);
+  add(ROW_HEADER, -1, -1, T(S_SET_APPS), "");
+  snprintf(v, sizeof v, T(S_APPS_SHOWN), (int)homeApps().size(), APP_COUNT);
+  add(ROW_LINK, SP_APPS, SI_APPS, T(S_HOME_SCREEN), v);
+  add(ROW_SWITCH, 104, 100 + APP_QUOTE, T(S_QUOTES_ONLINE), T(cfg::flag("quotes.online") ? S_QUOTES_ON : S_QUOTES_OFF), cfg::flag("quotes.online"));
+  add(ROW_SWITCH, 105, 100 + APP_GAMES, T(S_GAMES_AI), T(cfg::flag("games.ai") ? S_GAMES_AI_ON : S_GAMES_AI_OFF), cfg::flag("games.ai"));
+  add(ROW_HEADER, -1, -1, T(S_SET_SYSTEM), "");
   {
     UpdInfo u = updInfo();
-    String status = updCheckAsk || u.state == UPD_CHECKING ? String("Checking...") : u.status;
-    add(ROW_LINK, SP_UPDATE, SI_UPDATE, "Software update", String(updVersion()) + ". " + status);
+    String status = updCheckAsk || u.state == UPD_CHECKING ? String(T(S_CHECKING)) : u.status;
+    add(ROW_LINK, SP_UPDATE, SI_UPDATE, T(S_SET_UPDATE), String(updVersion()) + ". " + status);
   }
-  add(ROW_LINK, 103, SI_SETUP, "Connect to the setup app", "USB: plug in and open " SETUP_URL_SHORT ". Tap here for Bluetooth.");
-  add(ROW_LINK, 102, SI_ABOUT, "About this device", "Firmware, memory, battery, sensors, network");
+  add(ROW_LINK, 103, SI_SETUP, T(S_CONNECT_SETUP), TF(S_CONNECT_SETUP_HINT, SETUP_URL_SHORT));
+  add(ROW_LINK, 102, SI_ABOUT, T(S_ABOUT_DEVICE), T(S_ABOUT_DEVICE_HINT));
   return rows;
 }
 
 static void drawSettings() {
   if (wifiTyping) return keyboardDraw(wifiKb, BODY_Y + 4);
   if (wifiJoining) {  // a join: it takes a few seconds
-    textCentre(W / 2, H / 2 - 50, &FreeSansBold18pt7b, "Connecting to");
+    textCentre(W / 2, H / 2 - 50, &FreeSansBold18pt7b, T(S_CONNECTING_TO));
     textCentre(W / 2, H / 2, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, wifiJoinSsid, W - 40).c_str());
-    textCentre(W / 2, H / 2 + 46, &FreeSans12pt7b, "This takes up to 15 seconds");
+    textCentre(W / 2, H / 2 + 46, &FreeSans12pt7b, T(S_TAKES_15S));
     return;
   }
   drawList(settingsRows());
@@ -2695,6 +2985,13 @@ static void drawSettings() {
 static void settingsOpenPage(int page) {
   settingsPage = page;
   listPage = 0;
+  if (page == SP_LANGUAGE) {  // open on the page with the language in use
+    std::vector<ListRow> rows = settingsRows();
+    std::vector<int> starts = listPages(rows);
+    for (size_t i = 0; i < rows.size(); i++)
+      if (rows[i].kind == ROW_RADIO && rows[i].on)
+        while (listPage + 1 < (int)starts.size() && starts[listPage + 1] <= (int)i) listPage++;
+  }
   wifiForgetArmed = false;
   updNote = "";
   render(false);
@@ -2740,7 +3037,7 @@ static void wifiForget(int index) {
   bool ok = cfg::setWifiInPlace(nets, err);
   xSemaphoreTake(dataLock, portMAX_DELAY);
   wifiJoinFailed = !ok;
-  wifiStatus = ok ? "Forgot " + ssid + "." : "Couldn't forget it: " + err;
+  wifiStatus = ok ? TF(S_FORGOT, ssid.c_str()) : TF(S_COULDNT_FORGET, err.c_str());
   xSemaphoreGive(dataLock);
   Serial.printf("wifi: forget %s: %s\n", ssid.c_str(), ok ? "done" : err.c_str());
   if (ok && wasOn) reconnectAsk = true;  // off it, and on to another saved one
@@ -2750,7 +3047,7 @@ static void wifiForget(int index) {
 
 // The password keyboard for a network from the scan.
 static void wifiType(const String &ssid, const String &note) {
-  keyboardBegin(wifiKb, "", ssid.c_str(), "Its WiFi password", 64);
+  keyboardBegin(wifiKb, "", ssid.c_str(), T(S_WIFI_PASSWORD_HINT), 64);
   keyboardSecret(wifiKb);
   wifiKb.note = note;
   wifiJoinSsid = ssid;
@@ -2768,11 +3065,22 @@ static void wifiTypeResult(int r) {
   String pass = wifiKb.text;
   bool hexKey = pass.length() == 64 && strspn(pass.c_str(), "0123456789abcdefABCDEF") == 64;
   if ((pass.length() < 8 || pass.length() > 63) && !hexKey) {
-    wifiKb.note = "WiFi passwords are 8 to 63 characters.";
+    wifiKb.note = T(S_WIFI_PASSWORD_LENGTH);
     return render(false);
   }
   wifiTyping = false;
   wifiStartJoin(wifiJoinSsid, pass, false);
+}
+
+// Settings -> Language: the board's words from now on, and the setting
+// (device.language) kept, as the setup app would set it.
+static void languageChoose(int lang) {
+  if (lang < 0 || lang >= LANG_COUNT) return;
+  String err, json = String("\"") + LANGS[lang].code + "\"";
+  pj::Val val;
+  bool ok = pj::parse(json.c_str(), json.length(), val) && cfg::setInPlace("device.language", val, err);
+  i18nSet(lang);
+  Serial.printf("settings: language %s%s%s\n", LANGS[lang].code, ok ? "" : ": ", err.c_str());
 }
 
 static void settingsTap(int y) {
@@ -2784,6 +3092,13 @@ static void settingsTap(int y) {
     case ROW_BACK: return settingsBack();
     case ROW_HEADER: return;
     case ROW_RADIO:
+      if (settingsPage == SP_LANGUAGE) {
+        languageChoose(r.id);
+        settingsPage = SP_MAIN;
+        listPage = 0;
+        render(true);
+        return;
+      }
       if (settingsPage == SP_ROTATION) settings.turn = r.id;
       else if (settingsPage == SP_TEMPERATURE) settings.fahrenheit = r.id == 1;
       else if (settingsPage == SP_SLEEP) settings.sleepChoice = r.id;
@@ -2858,7 +3173,7 @@ static void settingsTap(int y) {
         }
         case 301:  // connect again
           canvas->fillRect(0, BODY_Y, W, H - BODY_Y, PAPER);
-          textCentre(W / 2, H / 2, &FreeSansBold18pt7b, "Connecting to WiFi...");
+          textCentre(W / 2, H / 2, &FreeSansBold18pt7b, T(S_CONNECTING_WIFI));
           show(false);
           reconnectAsk = true;  // the network task does it and asks for a redraw
           return;
@@ -2880,7 +3195,7 @@ static void settingsTap(int y) {
         case 103: return startSetupMode();
         case 600:  // install the release the page shows
           if (!now.usb && now.battery && now.percent < 20) {
-            updNote = "The battery is low: plug in USB, then install";
+            updNote = T(S_BATTERY_LOW_INSTALL);
             return render(false);
           }
           updNote = "";
@@ -3129,10 +3444,10 @@ static void drawHomeWidget() {
   if (timeKnown()) {
     strftime(line, sizeof line, "%H:%M", &tm);
     text(x, y + 56, &FreeSansBold24pt7b, line);
-    strftime(line, sizeof line, "%A, %e %B", &tm);
+    tStrftime(line, sizeof line, T(S_FMT_WEEKDAY_DAY_MONTH), &tm);
     text(x, y + 92, &FreeSans12pt7b, line);
   } else {
-    text(x, y + 56, &FreeSansBold18pt7b, netUp() ? "Setting the time..." : "No WiFi yet");
+    text(x, y + 56, &FreeSansBold18pt7b, T(netUp() ? S_CLOCK_SETTING_TIME : S_NO_WIFI_YET));
   }
 
   int wx = TALL ? 24 : W / 2 + 30, wy = TALL ? y + 116 : y + 12;  // the weather's corner
@@ -3141,9 +3456,9 @@ static void drawHomeWidget() {
     int end = tempText(wx + 74, wy + 44, &FreeSansBold18pt7b, shownTemp(weather.temp), 0, tempUnit());
     text(end + 14, wy + 44, &FreeSans12pt7b, fitted(&FreeSans12pt7b, weatherPlace(), W - end - 30).c_str());
   } else {
-    text(wx, wy + 44, &FreeSans12pt7b, !weatherConfigured() ? "Weather: set your town in the setup app"
-                                       : netUp()              ? "Weather on its way"
-                                                              : "No weather yet");
+    text(wx, wy + 44, &FreeSans12pt7b, fitted(&FreeSans12pt7b, T(!weatherConfigured() ? S_HOME_WEATHER_SETUP
+                                                                   : netUp()              ? S_HOME_WEATHER_COMING
+                                                                                          : S_HOME_NO_WEATHER), W - wx - 20).c_str());
   }
 
   const CalEvent *e = nextEvent();
@@ -3153,12 +3468,12 @@ static void drawHomeWidget() {
     time_t st = e->start;
     struct tm s = *localtime(&st);
     bool today = s.tm_yday == tm.tm_yday && s.tm_year == tm.tm_year;
-    if (e->allDay) strftime(line, sizeof line, today ? "Today" : "%a", &s);
-    else strftime(line, sizeof line, today ? "%H:%M" : "%a %H:%M", &s);
-    String row = String("Next: ") + line + "  " + e->title;
+    if (e->allDay) tStrftime(line, sizeof line, today ? T(S_TODAY) : "%a", &s);
+    else tStrftime(line, sizeof line, today ? "%H:%M" : T(S_FMT_DAY_HM), &s);
+    String row = TF(S_HOME_NEXT, line, e->title);
     text(ex, ey, &FreeSans9pt7b, fitted(&FreeSans9pt7b, row, W - ex - 24).c_str());
   } else if (calendarOk) {
-    text(ex, ey, &FreeSans9pt7b, "Nothing else in the calendar");
+    text(ex, ey, &FreeSans9pt7b, T(S_HOME_NOTHING));
   }
   canvas->drawFastHLine(16, L.gridTop - 6, W - 32, INK);
 }
@@ -3178,7 +3493,7 @@ static void drawHome() {
     appIcon(apps[i], cx, ty + TILE / 2, 54);
     int b = appBadge(apps[i]);
     if (b) badge(cx + TILE / 2 - 6, ty + 6, b);
-    String label = fitted(&FreeSans12pt7b, APP_NAMES[apps[i]], w - 8);
+    String label = fitted(&FreeSans12pt7b, appName(apps[i]), w - 8);
     textCentre(cx, ty + TILE + 30, &FreeSans12pt7b, label.c_str());
     if (i == homeFocus)  // the ring UP / DOWN moves and OK opens
       for (int k = 0; k < 3; k++) canvas->drawRoundRect(cx - TILE / 2 - 7 - k, ty - 7 - k, TILE + 14 + 2 * k, TILE + 14 + 2 * k, 28, INK);
@@ -3266,12 +3581,12 @@ static void quickTile(int i, int &x, int &y, int &w, int &h) {
 static void drawQuick() {
   char line[80];
   time_t t = time(nullptr);
-  if (timeKnown()) strftime(line, sizeof line, "%H:%M   %a %e %b", localtime(&t));
-  else strlcpy(line, "Time not set", sizeof line);
+  if (timeKnown()) tStrftime(line, sizeof line, T(S_FMT_QUICK_TIME), localtime(&t));
+  else utf8Copy(line, T(S_TIME_NOT_SET), sizeof line);
   text(24, BODY_Y + 44, &FreeSansBold18pt7b, line);
   if (now.battery)
-    snprintf(line, sizeof line, "Battery %d%%, %s, %d mA", now.percent, now.usb ? "charging from USB" : "on battery", now.milliamps);
-  else strlcpy(line, "Battery gauge not found", sizeof line);
+    snprintf(line, sizeof line, T(S_QUICK_BATTERY), now.percent, T(now.usb ? S_CHARGING_USB : S_ON_BATTERY), now.milliamps);
+  else utf8Copy(line, T(S_BATTERY_NOT_FOUND), sizeof line);
   text(24, BODY_Y + (TALL ? 90 : 72), &FreeSans12pt7b, fitted(&FreeSans12pt7b, line, W - 48).c_str());
 
   for (int i = 0; i < Q_COUNT; i++) {
@@ -3279,17 +3594,17 @@ static void drawQuick() {
     bool on = false;
     String v;
     switch (i) {
-      case Q_ROTATION: label = "Rotation"; on = settings.turn == TURN_AUTO; value = on ? "Turns with the board" : "Locked"; break;
-      case Q_SOUND: label = "Sound"; on = settings.sound; value = on ? "On" : "Off"; break;
+      case Q_ROTATION: label = T(S_Q_ROTATION); on = settings.turn == TURN_AUTO; value = T(on ? S_Q_ROTATION_ON : S_Q_LOCKED); break;
+      case Q_SOUND: label = T(S_Q_SOUND); on = settings.sound; value = T(on ? S_ON : S_OFF); break;
       case Q_WIFI:
-        label = "WiFi";
+        label = T(S_Q_WIFI);
         on = netUp();
-        v = on ? netName() : String("Tap to connect");
+        v = on ? netName() : String(T(S_Q_TAP_CONNECT));
         value = v.c_str();
         break;
-      case Q_CLEAN: label = "Clean screen"; value = "Full refresh"; break;
-      case Q_SLEEP: label = "Sleep now"; value = "OK wakes it"; break;
-      case Q_SETTINGS: label = "All settings"; value = "Open Settings"; break;
+      case Q_CLEAN: label = T(S_Q_CLEAN); value = T(S_Q_FULL_REFRESH); break;
+      case Q_SLEEP: label = T(S_Q_SLEEP); value = T(S_Q_OK_WAKES); break;
+      case Q_SETTINGS: label = T(S_Q_ALL_SETTINGS); value = T(S_Q_OPEN_SETTINGS); break;
     }
     int x, y, w, h;
     quickTile(i, x, y, w, h);
@@ -3305,7 +3620,7 @@ static void drawQuick() {
   }
   int x, y, w, h;
   quickTile(Q_COUNT - 1, x, y, w, h);
-  textCentre(W / 2, min(H - 16, y + h + 40), &FreeSans9pt7b, "Swipe up, or press OK, to close");
+  textCentre(W / 2, min(H - 16, y + h + 40), &FreeSans9pt7b, T(S_Q_CLOSE));
 }
 
 static void openQuick() {
@@ -3360,9 +3675,9 @@ static uint32_t timerDrawnAt;
 
 static int timerButtonCount() { return timerRunning ? 3 : 6; }
 static const char *timerButtonLabel(int i) {
-  static char label[12];
-  if (timerRunning) return i == 0 ? "+1 min" : i == 1 ? "+5 min" : "Stop";
-  snprintf(label, sizeof label, TIMER_PRESETS[i] == 60 ? "1 hour" : "%d min", TIMER_PRESETS[i]);
+  static char label[40];
+  if (timerRunning) return T(i == 0 ? S_TIMER_PLUS1 : i == 1 ? S_TIMER_PLUS5 : S_TIMER_STOP);
+  snprintf(label, sizeof label, T(TIMER_PRESETS[i] == 60 ? S_TIMER_HOUR : S_MIN_SHORT), TIMER_PRESETS[i]);
   return label;
 }
 
@@ -3380,23 +3695,23 @@ static void drawTimer() {
   int mm = left / 60, ss = left % 60;
   bool hours = mm >= 100;
   int digits[4] = {hours ? 9 : mm / 10, hours ? 9 : mm % 10, ss / 10, ss % 10};
-  const int DW = TALL ? 72 : 76, DH = DW * 7 / 4, T = DW * 22 / 100, GAP = DW * 18 / 100, COLON = DW * 42 / 100;
+  const int DW = TALL ? 72 : 76, DH = DW * 7 / 4, TH = DW * 22 / 100, GAP = DW * 18 / 100, COLON = DW * 42 / 100;
   int x = (W - (4 * DW + 2 * GAP + COLON)) / 2, y = BODY_Y + (TALL ? 70 : 22);
   for (int i = 0; i < 4; i++) {
-    segmentDigit(x, y, DW, DH, T, digits[i]);
+    segmentDigit(x, y, DW, DH, TH, digits[i]);
     x += DW + (i == 1 ? 0 : GAP);
     if (i == 1) {
-      canvas->fillCircle(x + COLON / 2, y + DH / 3, T / 2, INK);
-      canvas->fillCircle(x + COLON / 2, y + DH * 2 / 3, T / 2, INK);
+      canvas->fillCircle(x + COLON / 2, y + DH / 3, TH / 2, INK);
+      canvas->fillCircle(x + COLON / 2, y + DH * 2 / 3, TH / 2, INK);
       x += COLON;
     }
   }
   char line[64];
   if (timerRunning) {
     time_t end = time(nullptr) + left;
-    strftime(line, sizeof line, timeKnown() ? "Rings at %H:%M" : "Running", localtime(&end));
-  } else if (timerSay.length()) strlcpy(line, timerSay.c_str(), sizeof line);
-  else strlcpy(line, "Tap a length to start", sizeof line);
+    tStrftime(line, sizeof line, T(timeKnown() ? S_TIMER_RINGS : S_TIMER_RUNNING), localtime(&end));
+  } else if (timerSay.length()) utf8Copy(line, timerSay.c_str(), sizeof line);
+  else utf8Copy(line, T(S_TIMER_TAP), sizeof line);
   textCentre(W / 2, y + DH + (TALL ? 60 : 42), TALL ? &FreeSansBold18pt7b : &FreeSansBold12pt7b, line);
 
   for (int i = 0; i < timerButtonCount(); i++) {
@@ -3425,7 +3740,7 @@ static void timerTap(int x, int y) {
       timerRunning = true;
       timerSay = "";
     } else if (i < 2) timerRingsAt += (i == 0 ? 1 : 5) * 60000UL;
-    else timerRunning = false, timerSay = "Stopped";
+    else timerRunning = false, timerSay = T(S_TIMER_STOPPED);
     Serial.printf("timer: %s, %d s left\n", timerRunning ? "running" : "stopped", timerSecondsLeft());
     beep(2600, 30);
     render(false);
@@ -3437,8 +3752,8 @@ static void timerTap(int x, int y) {
 static void timerRing() {
   timerRunning = false;
   time_t t = time(nullptr);
-  char line[40];
-  strftime(line, sizeof line, timeKnown() ? "Time's up (%H:%M)" : "Time's up", localtime(&t));
+  char line[64];
+  tStrftime(line, sizeof line, T(timeKnown() ? S_TIMER_UP_AT : S_TIMER_UP), localtime(&t));
   timerSay = line;
   Serial.println("timer: ringing");
   screen = SCREEN_APP;
@@ -3514,7 +3829,7 @@ static bool quoteRefresh() {
   }
   if (!today || demoMode || !quotesOnline() || !appShown(APP_QUOTE) || quoteCache.date == today) return changed;
   if (!netUp()) {
-    if (quoteNowToday && quoteNote != "No WiFi right now.") quoteNote = "No WiFi right now.", changed = true;
+    if (quoteNowToday && quoteNote != T(S_QUOTE_NO_WIFI)) quoteNote = T(S_QUOTE_NO_WIFI), changed = true;
     return changed;
   }
   bool waiting = quoteAskToday || quoteAskRandom || (int32_t)(millis() - quoteTodayAt) < 0 || (int32_t)(millis() - quoteLimitedUntil) < 0 ||
@@ -3541,8 +3856,8 @@ static void quoteNew() {
   quoteNow.date = quoteToday();
   quoteNowToday = false;
   quoteNote = !quotesOnline()      ? ""
-              : !netUp()           ? "No WiFi right now."
-              : limited || tooSoon ? "ZenQuotes asks for a pause between quotes."
+              : !netUp()           ? T(S_QUOTE_NO_WIFI)
+              : limited || tooSoon ? T(S_QUOTE_PAUSE)
                                    : "";
   render(false);
 }
@@ -3577,7 +3892,7 @@ static void quotePoll() {
       quoteNow = quoteOfflineRandom(quoteNow.text);
       quoteNow.date = quoteToday();
       quoteNowToday = false;
-      quoteNote = kind == QUOTE_LIMITED ? String("ZenQuotes asks for a pause between quotes.") : error;
+      quoteNote = kind == QUOTE_LIMITED ? String(T(S_QUOTE_PAUSE)) : error;
     }
   }
   Serial.printf("quote: %s, %s: %s (%s)\n", today ? "today's" : "a new one", kind == QUOTE_GOT ? "from ZenQuotes" : kind == QUOTE_LIMITED ? "rate limited" : "failed",
@@ -3649,14 +3964,14 @@ static void drawQuote() {
     quoteButtonW = TALL ? W - 48 : 220;
     quoteButtonX = TALL ? 24 : W - quoteButtonW - 24;
     quoteButtonY = H - QUOTE_BUTTON_H - 16;
-    pillButton(quoteButtonX, quoteButtonY, quoteButtonW, QUOTE_BUTTON_H, quoteFetching ? "Fetching..." : "New quote", !quoteFetching, &FreeSansBold12pt7b);
-    String source = q.from == QUOTE_OFFLINE ? String("From the board's own list of public-domain quotes.") + (quoteNote.length() ? " " + quoteNote : String())
+    pillButton(quoteButtonX, quoteButtonY, quoteButtonW, QUOTE_BUTTON_H, T(quoteFetching ? S_QUOTE_FETCHING : S_QUOTE_NEW), !quoteFetching, &FreeSansBold12pt7b);
+    String source = q.from == QUOTE_OFFLINE ? String(T(S_QUOTE_OWN_LIST)) + (quoteNote.length() ? " " + quoteNote : String())
                                             : String(ZENQUOTES_CREDIT);
     int footW = TALL ? W - 48 : quoteButtonX - 48, footY = TALL ? quoteButtonY - 14 : quoteButtonY + 22;
     std::vector<String> foot = wrapped(&FreeSans9pt7b, source, footW);
     if (quoteNote.length() && q.from != QUOTE_OFFLINE)
       for (const String &l : wrapped(&FreeSans9pt7b, quoteNote, footW)) foot.push_back(l);
-    if (!settings.fullTried && foot.size() < 3) foot.push_back("Double-tap the quote for full screen.");  // until it's been used once
+    if (!settings.fullTried && foot.size() < 3) foot.push_back(T(S_QUOTE_DOUBLE_TAP));  // until it's been used once
     if (foot.size() > 3) foot.resize(3);
     if (TALL) footY -= (foot.size() - 1) * 22;
     else if (foot.size() > 2) footY -= 12;
@@ -3666,8 +3981,8 @@ static void drawQuote() {
 
     // The heading: what this is, and the day.
     time_t t = time(nullptr);
-    if (quoteNowToday && timeKnown()) strftime(line, sizeof line, "QUOTE OF THE DAY   %A %e %B", localtime(&t));
-    else strlcpy(line, quoteNowToday ? "QUOTE OF THE DAY" : "ANOTHER QUOTE", sizeof line);
+    if (quoteNowToday && timeKnown()) tStrftime(line, sizeof line, T(S_QUOTE_OF_DAY_DATE), localtime(&t));
+    else utf8Copy(line, T(quoteNowToday ? S_QUOTE_OF_DAY : S_QUOTE_ANOTHER), sizeof line);
     text(24, BODY_Y + 34, &FreeSansBold9pt7b, line);
     top = BODY_Y + 56;
   }
@@ -3799,7 +4114,7 @@ static int hourlyBackW() { return TALL ? 104 : 116; }
 // The heading: Back, the day and its summary, and the arrows to the next and previous day.
 static void hourlyHead(const HourlyDay *d) {
   int y = BODY_Y + 10, bw = hourlyBackW(), ab = 48;
-  pillButton(16, y, bw, 48, "Back", false, &FreeSansBold12pt7b);
+  pillButton(16, y, bw, 48, fitted(&FreeSansBold12pt7b, T(S_BACK), bw - 16).c_str(), false, &FreeSansBold12pt7b);
   long today = localDate(time(nullptr));
   int at = hourlyDayIndex(hourlyDate);
   bool prev = at > 0 && weather.dayDate[at - 1] >= today, next = at >= 0 && at + 1 < weather.days;
@@ -3830,12 +4145,12 @@ static void hourlyHead(const HourlyDay *d) {
     char n[2][8];
     snprintf(n[0], sizeof n[0], "%d", wholeTemp(shownTemp(hi)));
     snprintf(n[1], sizeof n[1], "%d", wholeTemp(shownTemp(lo)));
-    hiLoW = textW(f, "High ") + textW(f, n[0]) + 20 + 24 + textW(f, "Low ") + textW(f, n[1]) + 20;  // each with its degree ring
+    hiLoW = textW(f, T(S_HOURS_HIGH)) + textW(f, n[0]) + 20 + 24 + textW(f, T(S_HOURS_LOW)) + textW(f, n[1]) + 20;  // each with its degree ring
   }
-  char title[40];
+  char title[64];
   for (int form = 0; form < 2; form++) {
-    if (hourlyDate == today) strftime(title, sizeof title, TALL || form ? "Today" : "Today, %a %e %b", &dt);
-    else strftime(title, sizeof title, TALL ? "%A" : form ? "%a %e %b" : "%A %e %B", &dt);
+    if (hourlyDate == today) tStrftime(title, sizeof title, TALL || form ? T(S_TODAY) : T(S_HOURS_TODAY_DATE), &dt);
+    else tStrftime(title, sizeof title, TALL ? "%A" : form ? T(S_FMT_DAY_DATE) : T(S_FMT_WEEKDAY_DATE), &dt);
     if (TALL || !hiLoW || textW(&FreeSansBold18pt7b, title) + 26 + hiLoW <= tw - 30) break;
   }
   text(tx, y + 34, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, title, tw).c_str());
@@ -3843,9 +4158,9 @@ static void hourlyHead(const HourlyDay *d) {
   int x = tx + textW(&FreeSansBold18pt7b, title) + 26, ly = y + 32;
   if (TALL) x = 20, ly = BODY_Y + HOURLY_HEAD_H + 18;
   else if (x + hiLoW > tx + tw - 30) return;  // no room even so
-  text(x, ly, f, "High ");
+  text(x, ly, f, T(S_HOURS_HIGH));
   x = tempText(canvas->getCursorX(), ly, f, shownTemp(hi), 0, "", 4) + 24;
-  text(x, ly, f, "Low ");
+  text(x, ly, f, T(S_HOURS_LOW));
   tempText(canvas->getCursorX(), ly, f, shownTemp(lo), 0, "", 4);
 }
 
@@ -3883,7 +4198,7 @@ static void hourlyChart(const HourlyDay &d) {
   if (d.date == localDate(nowT)) {
     int x = left + tmNow.tm_hour * colW + tmNow.tm_min * colW / 60;
     for (int y = t0 - 30; y < r1; y += 8) canvas->drawFastVLine(x, y, 4, INK), canvas->drawFastVLine(x + 1, y, 4, INK);
-    textCentre(x, t0 - 34, &FreeSansBold9pt7b, "now");
+    textCentre(x, t0 - 34, &FreeSansBold9pt7b, T(S_HOURS_NOW));
   }
   // The line, a dot on each hour, the value every third.
   for (int h = 0; h + 1 < n; h++)
@@ -3897,7 +4212,7 @@ static void hourlyChart(const HourlyDay &d) {
   }
   // Rain: the chance as a bar; filled when some is expected.
   canvas->drawFastHLine(left, r1, right - left, INK);
-  text(4, r1 - 18, &FreeSans9pt7b, "Rain");
+  text(4, r1 - 18, &FreeSans9pt7b, T(S_HOURS_RAIN));
   for (int h = 0; h < n; h++) {
     if (d.rainPct[h] <= 0) continue;
     int bh = max(2, d.rainPct[h] * (r1 - r0) / 100), bx = left + h * colW + 3, bw = colW - 6;
@@ -3921,7 +4236,7 @@ static void hourlyChart(const HourlyDay &d) {
     snprintf(v, sizeof v, "%d", (d.wind10[h] + 5) / 10);
     textCentre(cx, wy, &FreeSans9pt7b, v);
   }
-  text(4, wy, &FreeSans9pt7b, "km/h");
+  text(4, wy, &FreeSans9pt7b, T(S_KMH));
   for (int h = 3; h < n; h += 3) canvas->drawFastVLine(left + h * colW, r1 + 6, wy - r1 - 4, INK);
 }
 
@@ -3938,10 +4253,10 @@ static void hourlyList(const HourlyDay &d) {
   hourlyPage = constrain(hourlyPage, 0, pages - 1);
   int top = BODY_Y + HOURLY_HEAD_H + hourlyHiLoH() + 22;
   // The column headings.
-  text(20, top + 4, &FreeSans9pt7b, "Hour");
-  text(176, top + 4, &FreeSans9pt7b, "Temp");
-  text(276, top + 4, &FreeSans9pt7b, "Rain");
-  textRight(W - 20, top + 4, &FreeSans9pt7b, "Wind km/h");
+  text(20, top + 4, &FreeSans9pt7b, T(S_HOURS_HOUR));
+  text(176, top + 4, &FreeSans9pt7b, T(S_HOURS_TEMP));
+  text(276, top + 4, &FreeSans9pt7b, T(S_HOURS_RAIN));
+  textRight(W - 20, top + 4, &FreeSans9pt7b, T(S_HOURS_WIND));
   canvas->drawFastHLine(20, top + 14, W - 40, INK);
   char v[24];
   for (int row = 0; row < per; row++) {
@@ -3966,7 +4281,7 @@ static void hourlyList(const HourlyDay &d) {
     if (row + 1 < per && h + 1 < d.hours) canvas->drawFastHLine(26, y + HOURLY_ROW - 1, W - 46, INK);
   }
   snprintf(v, sizeof v, "%d / %d", hourlyPage + 1, pages);
-  String foot = String(v) + (hourlyPage + 1 < pages ? "   swipe up for later hours" : "   swipe down for earlier");
+  String foot = String(v) + "   " + T(hourlyPage + 1 < pages ? S_HOURS_LATER : S_HOURS_EARLIER);
   textCentre(W / 2, H - 14, &FreeSans9pt7b, foot.c_str());
 }
 
@@ -3976,15 +4291,15 @@ static void drawHourly() {
   hourlyHead(d);
   if (!d) {
     bool asking = hourlyAsk == hourlyDate;
-    textCentre(W / 2, H / 2, &FreeSansBold18pt7b, asking ? "Fetching the hours..." : netUp() ? "No hours for this day" : "No WiFi: no hours yet");
+    textCentre(W / 2, H / 2, &FreeSansBold18pt7b, T(asking ? S_HOURS_FETCHING : netUp() ? S_HOURS_NONE : S_HOURS_NO_WIFI));
     if (!asking) failureLine(H / 2 + 44, hourlyError);
-    if (!asking) textCentre(W / 2, H / 2 + 84, &FreeSans12pt7b, "Press OK to go back, or tap the day again");
+    if (!asking) textCentre(W / 2, H / 2 + 84, &FreeSans12pt7b, T(S_HOURS_BACK));
     return;
   }
   if (TALL) hourlyList(*d);
   else hourlyChart(*d);
   if (!demoMode && hourlyError.length()) {  // a refresh failed: the hours shown are older
-    String why = "Not updated: " + hourlyError;
+    String why = TF(S_CAL_NOT_UPDATED, hourlyError.c_str());
     textCentre(W / 2, BODY_Y + HOURLY_HEAD_H + hourlyHiLoH() + 14, &FreeSans9pt7b, fitted(&FreeSans9pt7b, why, W - 40).c_str());
   }
 }
@@ -4045,12 +4360,83 @@ static uint64_t recipeTicks;        // its ingredients ticked, one bit each
 static int recipePage, recipeListPage, recipePages = 1;
 static bool recipeDeleteArmed;
 static bool recipeListening;        // the microphone is on for a request
-static String recipeSay = "Tap the microphone and say a dish, or type it.";
+static String recipeSay;  // the last outcome; empty: the hint (S_RECIPE_HINT)
 static std::vector<std::pair<int16_t, int16_t>> recipeTickHit;  // shown ingredient rows: top, and the ingredient's number (bottom is the next)
 static std::vector<int16_t> recipeTickBottom;
 static int recipeRowHitTop, recipeRowsShown;  // the saved list's rows on screen
 
 static bool recipeThinking() { return recipeJob && notesPending(); }
+
+// ---- the Listening / Thinking card
+
+// A big microphone, about 70 x 100 around cx, cy: the app icons' 3 px strokes.
+static void bigMicGlyph(int cx, int cy) {
+  canvas->fillRoundRect(cx - 18, cy - 48, 36, 62, 18, INK);  // the capsule
+  for (int k = 0; k < 4; k++) {
+    canvas->drawCircleHelper(cx, cy - 4, 32 - k, 4 | 8, INK);  // the cradle, lower half
+    canvas->drawFastVLine(cx - 32 + k, cy - 18, 15, INK);
+    canvas->drawFastVLine(cx + 32 - k, cy - 18, 15, INK);
+  }
+  canvas->fillRect(cx - 2, cy + 28, 5, 14, INK);  // the stand
+  canvas->fillRoundRect(cx - 22, cy + 40, 45, 5, 2, INK);
+}
+
+// A speech bubble with three dots: thinking.
+static void thinkGlyph(int cx, int cy) {
+  for (int k = 0; k < 4; k++) canvas->drawRoundRect(cx - 56 + k, cy - 38 + k, 112 - 2 * k, 70 - 2 * k, 22 - k, INK);
+  for (int k = 0; k < 4; k++) {  // the tail, bottom left
+    canvas->drawLine(cx - 30 + k, cy + 30, cx - 40 + k, cy + 46, INK);
+    canvas->drawLine(cx - 40 + k, cy + 46, cx - 12 + k, cy + 30, INK);
+  }
+  canvas->drawFastHLine(cx - 28, cy + 29, 16, PAPER);  // open the bubble into the tail
+  canvas->drawFastHLine(cx - 28, cy + 30, 16, PAPER);
+  canvas->drawFastHLine(cx - 28, cy + 31, 16, PAPER);
+  for (int i = -1; i <= 1; i++) canvas->fillCircle(cx + i * 30, cy - 3, 9, INK);
+}
+
+// What the card shows now: 0 nothing, 1 Listening, 2 Thinking; `hint` its small line ("a|b": a dot between).
+static int voiceCardState(const char *&hint) {
+  if (voiceCardDemo) {
+    hint = T(voiceCardDemo == 1 ? S_LISTEN_HINT : S_TAP_TO_CANCEL);
+    return voiceCardDemo;
+  }
+  if (listenHint) return hint = listenHint, 1;
+  if (screen != SCREEN_APP || setupMode || updScreen || !notesPending()) return 0;
+  bool typing = (app == APP_NOTES && notesTyping) || (app == APP_RECIPES && recipeMode == RM_TYPING) || app == APP_GAMES;
+  if (notesKind() == JOB_DICTATE) return typing ? (hint = T(S_TURNING_SPEECH), 2) : 0;
+  if (app == APP_NOTES && noteJobPending() && !notesTyping && noteOpen < 0) return hint = T(S_TAP_TO_CANCEL), 2;
+  if (app == APP_RECIPES && recipeMode == RM_LIST && recipeThinking()) return hint = T(S_WRITING_RECIPE_HINT), 2;
+  return 0;
+}
+
+static void drawVoiceCard() {
+  const char *hint = "";
+  int state = voiceCardState(hint);
+  if (!state) return;
+  int cw = min(W - 60, 460), ch = 290;
+  int cx = W / 2, x = cx - cw / 2, y = BODY_Y + (H - BODY_Y - ch) / 2;
+  canvas->fillRoundRect(x + 8, y + 8, cw, ch, 28, INK);  // a shadow: the card sits on top
+  canvas->fillRoundRect(x, y, cw, ch, 28, PAPER);
+  for (int k = 0; k < 3; k++) canvas->drawRoundRect(x + k, y + k, cw - 2 * k, ch - 2 * k, 28 - k, INK);
+  if (state == 1) bigMicGlyph(cx, y + 92);
+  else thinkGlyph(cx, y + 86);
+  canvas->setTextColor(INK);
+  textCentre(cx, y + 200, &FreeSansBold24pt7b, fitted(&FreeSansBold24pt7b, T(state == 1 ? S_LISTENING : S_THINKING), cw - 30).c_str());
+  // The small line; "a|b" is drawn "a  .  b" with a round dot (the fonts are 7-bit: no middle dot).
+  String h = hint;
+  int bar = h.indexOf('|');
+  int by = y + 248;
+  if (bar < 0) {
+    textCentre(cx, by, &FreeSans12pt7b, h.c_str());
+  } else {
+    String a = h.substring(0, bar), b = h.substring(bar + 1);
+    int wa = textW(&FreeSans12pt7b, a.c_str()), wb = textW(&FreeSans12pt7b, b.c_str()), gap = 26;
+    int left = cx - (wa + gap + wb) / 2;
+    text(left, by, &FreeSans12pt7b, a.c_str());
+    canvas->fillCircle(left + wa + gap / 2, by - 7, 3, INK);
+    text(left + wa + gap, by, &FreeSans12pt7b, b.c_str());
+  }
+}
 
 // Little pictures for the recipe pages, about s across.
 static void clockGlyph(int cx, int cy, int s) {
@@ -4168,11 +4554,11 @@ static void drawRecipeOpen() {
   int y = BODY_Y + 12, tx = recipeTextX(), w = W - tx - 24, L = recipeLine(), bottom = H - RECIPE_FOOT_H - 6;
   recipeTickHit.clear();
   recipeTickBottom.clear();
-  const char *const HEADS[] = {"Ingredients", "Method", "Tips"};
-  char line[48];
+  const char *const HEADS[] = {T(S_INGREDIENTS), T(S_METHOD), T(S_TIPS)};
+  char line[80];
   if (first > 0 && blocks[first].kind != 1) {  // a page that carries on a section: its name again, small
     int k = blocks[first].kind == 2 ? 0 : blocks[first].kind == 3 ? 1 : 2;
-    snprintf(line, sizeof line, "%s, more", HEADS[k]);
+    snprintf(line, sizeof line, T(S_SECTION_MORE), HEADS[k]);
     text(24, y + 10, &FreeSansBold9pt7b, line);
     y += 16;
   }
@@ -4191,11 +4577,11 @@ static void drawRecipeOpen() {
         }
         if (r.serves) {
           personGlyph(mx + 12, my - 8, 26);
-          snprintf(line, sizeof line, "Serves %d", r.serves);
+          snprintf(line, sizeof line, T(S_SERVES), r.serves);
           text(mx + 32, my, &FreeSansBold12pt7b, line);
           mx = canvas->getCursorX() + 30;
         }
-        snprintf(line, sizeof line, "%d ingredients, %d steps", (int)r.ingredients.size(), (int)r.steps.size());
+        snprintf(line, sizeof line, T(S_RECIPE_COUNTS), TP(S_INGREDIENTS_N, r.ingredients.size()).c_str(), TP(S_STEPS_N, r.steps.size()).c_str());
         if (mx + textW(&FreeSans12pt7b, line) < W - 24) text(mx, my, &FreeSans12pt7b, line);
         break;
       }
@@ -4251,14 +4637,14 @@ static void drawRecipeOpen() {
   }
   // The foot: Back, where this page is, Delete (tap twice).
   int fy = H - RECIPE_FOOT_H + 6, bh = RECIPE_FOOT_H - 16, bw = TALL ? 120 : 150;
-  pillButton(16, fy, bw, bh, "Back", false, &FreeSansBold12pt7b);
+  pillButton(16, fy, bw, bh, fitted(&FreeSansBold12pt7b, T(S_BACK), bw - 16).c_str(), false, &FreeSansBold12pt7b);
   bool demoOne = r.file.startsWith("demo:") || !r.file.length();
   if (!demoOne || recipesDemoOn())
-    pillButton(W - 16 - bw, fy, bw, bh, recipeDeleteArmed ? "Sure?" : "Delete", recipeDeleteArmed, &FreeSansBold12pt7b);
+    pillButton(W - 16 - bw, fy, bw, bh, fitted(&FreeSansBold12pt7b, T(recipeDeleteArmed ? S_RECIPE_SURE : S_NOTE_DELETE), bw - 16).c_str(), recipeDeleteArmed, &FreeSansBold12pt7b);
   if (recipePages > 1) {
     snprintf(line, sizeof line, "%d / %d", recipePage + 1, recipePages);
     textCentre(W / 2, fy + bh / 2 - (TALL ? 2 : 0), &FreeSansBold12pt7b, line);
-    textCentre(W / 2, fy + bh / 2 + 22, &FreeSans9pt7b, recipePage + 1 < recipePages ? "swipe up for more" : "swipe down to go back");
+    textCentre(W / 2, fy + bh / 2 + 22, &FreeSans9pt7b, T(recipePage + 1 < recipePages ? S_LIST_MORE : S_LIST_BACK));
   }
 }
 
@@ -4282,12 +4668,12 @@ static void drawRecipeList() {
     if (k == 0) micGlyph(x + 40, y + bh / 2, fg);
     else keyboardGlyph(x + 42, y + bh / 2, fg);
     canvas->setTextColor(fg);
-    text(x + 74, y + bh / 2 + 8, &FreeSansBold12pt7b, k == 0 ? (recipeListening ? "Listening..." : "Say a dish") : "Type it");
+    text(x + 74, y + bh / 2 + 8, &FreeSansBold12pt7b, T(k == 0 ? (recipeListening ? S_LISTENING : S_RECIPE_SAY) : S_RECIPE_TYPE));
     canvas->setTextColor(INK);
   }
   // What's happening, or what the AI said.
   int sy = y + bh + (TALL ? 34 : 32);
-  String say = recipeListening ? String("Listening... tap anywhere to stop.") : recipeThinking() ? String("Writing a recipe... tap here to cancel") : recipeSay;
+  String say = recipeListening ? String(T(S_KB_LISTENING)) : recipeThinking() ? String(T(S_RECIPE_WRITING)) : recipeSay.length() ? recipeSay : String(T(S_RECIPE_HINT));
   const GFXfont *sf = recipeThinking() || recipeListening ? &FreeSansBold12pt7b : &FreeSans12pt7b;
   if (TALL) {
     std::vector<String> lines = wrapped(sf, say, W - 48);
@@ -4299,8 +4685,8 @@ static void drawRecipeList() {
   recipeRowsShown = 0;
   if (all.empty()) {
     chefHat(W / 2, top + (TALL ? 120 : 90), TALL ? 120 : 100, 5);
-    textCentre(W / 2, top + (TALL ? 240 : 190), &FreeSansBold12pt7b, "No recipes yet");
-    std::vector<String> lines = wrapped(&FreeSans12pt7b, "Try: \"a quick vegetarian pasta for two\"", W - 60);
+    textCentre(W / 2, top + (TALL ? 240 : 190), &FreeSansBold12pt7b, T(S_RECIPES_EMPTY));
+    std::vector<String> lines = wrapped(&FreeSans12pt7b, T(S_RECIPE_TRY), W - 60);
     for (size_t i = 0; i < lines.size(); i++) textCentre(W / 2, top + (TALL ? 276 : 224) + i * 28, &FreeSans12pt7b, lines[i].c_str());
     return;
   }
@@ -4316,10 +4702,10 @@ static void drawRecipeList() {
     chefHat(46, ry + RECIPE_ROW / 2 - 4, 36, 3);
     text(82, ry + 28, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, e.title, W - 82 - 50).c_str());
     String meta = e.time;
-    if (e.serves) meta += String(meta.length() ? ", " : "") + "serves " + e.serves;
+    if (e.serves) meta += String(meta.length() ? ", " : "") + TF(S_SERVES_LOWER, e.serves);
     if (e.added > 1700000000) {
       time_t t = e.added;
-      strftime(line, sizeof line, "saved %a %e %b", localtime(&t));
+      tStrftime(line, sizeof line, T(S_SAVED_ON), localtime(&t));
       meta += String(meta.length() ? ", " : "") + line;
     }
     text(82, ry + 54, &FreeSans9pt7b, fitted(&FreeSans9pt7b, meta, W - 82 - 50).c_str());
@@ -4333,7 +4719,7 @@ static void drawRecipeList() {
 static void drawRecipes() {
   if (recipeMode == RM_TYPING) return keyboardDraw(noteKb, BODY_Y + 4);
   if (!notesAiConfigured() && recipesList().empty() && recipeMode == RM_LIST && !demoMode)
-    return drawSetupHint("Recipes", "The Recipes app asks an AI to write a recipe from what you say or type. It needs an OpenAI key.");
+    return drawSetupHint(appName(APP_RECIPES), T(S_RECIPES_SETUP));
   if (recipeMode == RM_OPEN) return drawRecipeOpen();
   drawRecipeList();
 }
@@ -4343,7 +4729,7 @@ static void recipeOpenEntry(const RecipeEntry &e) {
   String why;
   bool ok = e.file.startsWith("demo:") ? recipeDemoLoad(e.file.substring(5).toInt(), recipeShown) : recipeLoad(e.file, recipeShown, why);
   if (!ok) {
-    recipeSay = "That recipe doesn't read any more: " + why;
+    recipeSay = TF(S_RECIPE_UNREADABLE, why.c_str());
     recipeMode = RM_LIST;
   } else {
     recipeMode = RM_OPEN;
@@ -4359,10 +4745,10 @@ static void recipeAsk(NotesJob kind, int16_t *pcm, size_t samples, const String 
   String why;
   if (!notesAiConfigured()) {
     free(pcm);
-    recipeSay = "Recipes need an OpenAI key: add it in the setup app.";
+    recipeSay = T(S_RECIPE_NO_KEY);
   } else if (!netUp()) {
     free(pcm);
-    recipeSay = "No WiFi: I can't ask the AI for a recipe.";
+    recipeSay = T(S_RECIPE_NO_WIFI);
   } else if (!notesStart(kind, pcm, samples, typed, why)) {
     recipeSay = why;
   } else {
@@ -4378,31 +4764,33 @@ static void recipeAsk(NotesJob kind, int16_t *pcm, size_t samples, const String 
 // Say a dish: tap the button, speak, tap again (or hold OK and let go).
 static void recipeVoice(bool byTouch) {
   if (notesBusy()) {
-    recipeSay = recipeThinking() ? "Still writing the last one. Tap here to cancel it." : "Busy with a note. Try again in a moment.";
+    recipeSay = T(recipeThinking() ? S_RECIPE_STILL : S_RECIPE_BUSY_NOTE);
     if (byTouch) waitForLift();
     return render(false);
   }
   recipeListening = true;
   voiceBusy = true;
+  listenHint = T(byTouch ? S_LISTEN_HINT : S_LISTEN_HINT_OK);
   render(false);
   int16_t *pcm = nullptr;
   micTapPhase = 0;
   size_t samples = byTouch ? micRecord(keepListeningTouch, &pcm) : micRecord([] { return digitalRead(PIN_BTN_OK) == LOW; }, &pcm);
   recipeListening = false;
+  listenHint = nullptr;
   if (byTouch) waitForLift();
   voiceNotes++;
   beep(2000, 40);
   if (samples < 16000 / 2) {
     free(pcm);
     voiceBusy = false;
-    recipeSay = samples ? "That was too short: nothing was sent." : micError();
+    recipeSay = samples ? T(S_TOO_SHORT_SENT) : micError();
     return render(false);
   }
   recipeAsk(JOB_RECIPE_VOICE, pcm, samples, "");
 }
 
 static void recipeType() {
-  keyboardBegin(noteKb, "", "What would you like to cook?", "a quick vegetarian pasta for two", 200);
+  keyboardBegin(noteKb, "", T(S_RECIPE_ASK), T(S_RECIPE_EXAMPLE), 200);
   recipeMode = RM_TYPING;
   render(false);
 }
@@ -4416,7 +4804,7 @@ static void recipeTypeResult(int r) {
   }
   if (r != KB_DONE) return;
   if (notesBusy()) {
-    noteKb.note = "Still busy with speech. A moment, then Done again.";
+    noteKb.note = T(S_KB_STILL_SPEECH);
     return render(false);
   }
   String typed = noteKb.text;
@@ -4446,9 +4834,9 @@ static void recipeArrived(const String &say, const String &heard, const String &
       recipePage = 0;
       recipeTicks = 0;
       recipeDeleteArmed = false;
-      recipeSay = !saved && !recipesDemoOn() ? "Couldn't save it: the board's storage is full or failing."
-                  : dropped.length()           ? "Saved. 30 is the most, so the oldest went: " + dropped
-                                               : "Saved: \"" + r.title + "\"";
+      recipeSay = !saved && !recipesDemoOn() ? String(T(S_RECIPE_SAVE_FAILED))
+                  : dropped.length()           ? TF(S_RECIPE_SAVED_DROPPED, dropped.c_str())
+                                               : TF(S_RECIPE_SAVED, r.title.c_str());
     }
   }
   Serial.printf("recipes: asked \"%s\": %s\n", heard.c_str(), recipeSay.c_str());
@@ -4457,6 +4845,12 @@ static void recipeArrived(const String &say, const String &heard, const String &
 
 static void recipesTap(int x, int y) {
   if (recipeMode == RM_TYPING) return recipeTypeResult(keyboardTap(noteKb, x, y));
+  if (recipeMode == RM_LIST && recipeThinking()) {  // the Thinking card covers the list: a tap anywhere cancels
+    notesCancel();
+    recipeJob = false;
+    recipeSay = T(S_CANCELLED);
+    return render(false);
+  }
   if (recipeMode == RM_OPEN) {
     if (y >= H - RECIPE_FOOT_H) {  // the foot
       int bw = TALL ? 120 : 150;
@@ -4470,7 +4864,7 @@ static void recipesTap(int x, int y) {
           return render(false);
         }
         recipeDelete(recipeShown.file);
-        recipeSay = "Deleted \"" + recipeShown.title + "\".";
+        recipeSay = TF(S_RECIPE_DELETED, recipeShown.title.c_str());
         recipeMode = RM_LIST;
         recipeDeleteArmed = false;
         return render(false);
@@ -4501,7 +4895,7 @@ static void recipesTap(int x, int y) {
   if (recipeThinking() && y < recipeListTop() - 10) {  // the line says "tap here to cancel"
     notesCancel();
     recipeJob = false;
-    recipeSay = "Cancelled.";
+    recipeSay = T(S_CANCELLED);
     return render(false);
   }
   if (y >= recipeRowHitTop) {
@@ -4537,7 +4931,7 @@ static void recipesAction() {
   if (recipeThinking()) {
     notesCancel();
     recipeJob = false;
-    recipeSay = "Cancelled.";
+    recipeSay = T(S_CANCELLED);
     return render(false);
   }
   if (recipeMode == RM_OPEN) {
@@ -4557,7 +4951,7 @@ static void drawUpdating() {
   UpdInfo u = updInfo();
   bool restarting = u.state == UPD_RESTARTING;
   int cy = BODY_Y + BODY_H / 2, bx = 40, bw = W - 80, bh = 40, by = cy - bh / 2;
-  String title = restarting ? String("Restarting...") : "Updating to " + u.latest;
+  String title = restarting ? String(T(S_N_UPD_RESTARTING)) : TF(S_N_UPD_UPDATING, u.latest.c_str());
   textCentre(W / 2, by - 60, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, title, W - 40).c_str());
   canvas->drawRoundRect(bx, by, bw, bh, bh / 2, INK);
   canvas->drawRoundRect(bx + 1, by + 1, bw - 2, bh - 2, bh / 2 - 1, INK);
@@ -4567,8 +4961,8 @@ static void drawUpdating() {
   char line[24];
   snprintf(line, sizeof line, "%d%%", pct);
   textCentre(W / 2, by + bh + 44, &FreeSansBold12pt7b, line);
-  textCentre(W / 2, by + bh + 110, &FreeSansBold18pt7b, restarting ? "Starting the new version" : "Don't unplug");
-  if (!restarting) textCentre(W / 2, by + bh + 150, &FreeSans12pt7b, "The board restarts by itself when it's done");
+  textCentre(W / 2, by + bh + 110, &FreeSansBold18pt7b, T(restarting ? S_UPD_START_NEW : S_UPD_DONT_UNPLUG));
+  if (!restarting) textCentre(W / 2, by + bh + 150, &FreeSans12pt7b, T(S_UPD_RESTARTS));
 }
 
 // Draws the current app. Photos use the four-grey refresh; the rest are black and white.
@@ -4591,8 +4985,7 @@ static void render(bool full) {
     return;
   }
   if (revertNotice) {
-    drawSetupCard("Settings went back", {"The settings saved last didn't get the board online, so it went back to the ones before (they worked).",
-                                         "", "Check the WiFi name and password in the setup app. Tap or press OK."});
+    drawSetupCard(T(S_REVERT_TITLE), {T(S_REVERT_1), "", T(S_REVERT_2)});
     show(full);
     return;
   }
@@ -4626,8 +5019,7 @@ static void render(bool full) {
       int total = photoTotal(), onBoard = photoStoreCount();
       if (!total) {
         if (fs) drawBar();  // nothing to show full screen
-        drawSetupCard("No photos yet", {"Send photos to the board from the setup app: plug in the USB cable, open it in Chrome or Edge on a computer, and choose Photos.", "",
-                                        photosCardIn() ? "Or put JPEG files in a folder named photos on the microSD card." : "Or put JPEG files in a folder named photos on a microSD card."});
+        drawSetupCard(T(S_PHOTOS_NONE), {T(S_PHOTOS_SEND), "", T(photosCardIn() ? S_PHOTOS_CARD_IN : S_PHOTOS_CARD)});
         break;
       }
       photoIndex = (photoIndex % total + total) % total;
@@ -4643,7 +5035,7 @@ static void render(bool full) {
       } else if (photoBuffer) {
         drawn = photoRender(photoIndex - onBoard, photoBuffer, W, H - top, name, sizeof name, &why);
       } else {
-        strlcpy(name, "", sizeof name), why = "out of memory";
+        strlcpy(name, "", sizeof name), why = T(S_OUT_OF_MEMORY);
       }
       if (drawn) {
         Serial.printf("photos: %s drawn%s in %lu ms\n", name, fs ? " full screen" : "", (unsigned long)(millis() - t));
@@ -4653,7 +5045,7 @@ static void render(bool full) {
       }
       if (fs) drawBar();
       Serial.printf("photos: %s: %s\n", name, why);
-      textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, "Can't show this photo");
+      textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, T(S_PHOTO_CANT));
       textCentre(W / 2, H / 2 + 40, &FreeSans12pt7b, name);
       textCentre(W / 2, H / 2 + 80, &FreeSans12pt7b, why);
       break;
@@ -4668,14 +5060,13 @@ static void render(bool full) {
 // it up. The apps work without WiFi too, so Start goes home.
 static int welcomeButtonsY, welcomeButtonsX;
 static void drawWelcome() {
-  String title = "Hello, I'm " + deviceName();
+  String title = TF(S_WELCOME_HELLO, deviceName().c_str());
   int bh = 64, by = H - bh - 18;
-  drawSetupCard(title.c_str(), {"To set me up, open the address below in Chrome or Edge on a computer and plug in the USB cable. Or tap Set up WiFi to join a network here.",
-                                "The apps work without WiFi too."}, bh + 30);
+  drawSetupCard(title.c_str(), {T(S_WELCOME_1), T(S_WELCOME_2)}, bh + 30);
   int bw = TALL ? (W - 60) / 2 : 200, bx = TALL ? 20 : 28;
   welcomeButtonsY = by, welcomeButtonsX = bx;
-  pillButton(bx, by, bw, bh, "Set up WiFi", false, &FreeSansBold12pt7b);
-  pillButton(bx + bw + 20, by, bw, bh, "Start", true, &FreeSansBold12pt7b);
+  pillButton(bx, by, bw, bh, fitted(&FreeSansBold12pt7b, T(S_WELCOME_WIFI), bw - 16).c_str(), false, &FreeSansBold12pt7b);
+  pillButton(bx + bw + 20, by, bw, bh, fitted(&FreeSansBold12pt7b, T(S_WELCOME_START), bw - 16).c_str(), true, &FreeSansBold12pt7b);
 }
 
 static void welcomeWifi() {
@@ -4697,15 +5088,15 @@ static int setupLeaveY;
 static void drawSetupMode() {
   if (setupEnding) {
     textCentre(W / 2, H / 2 - 20, &FreeSansBold24pt7b, setupEnding);
-    textCentre(W / 2, H / 2 + 30, &FreeSans12pt7b, "Restarting...");
+    textCentre(W / 2, H / 2 + 30, &FreeSans12pt7b, T(S_N_UPD_RESTARTING));
     return;
   }
   String name = bluetoothName();
   const GFXfont *body = &FreeSans12pt7b;
   int x = 28, tw = TALL ? W - 56 : W - 330, y = BODY_Y + 50;
-  text(x, y, &FreeSansBold18pt7b, "Bluetooth setup");
+  text(x, y, &FreeSansBold18pt7b, T(S_SETUP_BLUETOOTH));
   y += 40;
-  for (const String &l : wrapped(body, "On a computer or an Android phone, open " SETUP_URL_SHORT " in Chrome or Edge, choose Bluetooth, then:", tw)) {
+  for (const String &l : wrapped(body, TF(S_SETUP_OPEN, SETUP_URL_SHORT), tw)) {
     text(x, y, body, l.c_str());
     y += 30;
   }
@@ -4715,31 +5106,31 @@ static void drawSetupMode() {
   char code[8], line[64];
   snprintf(code, sizeof code, "%06u", (unsigned)setupPasskey);
   if (setupState == PROV_PAIRED) {
-    text(x, y, &FreeSansBold12pt7b, "Paired.");
+    text(x, y, &FreeSansBold12pt7b, T(S_SETUP_PAIRED));
     y += 30;
-    for (const String &l : wrapped(body, "Change the settings in the browser. Saving restarts the board.", tw)) {
+    for (const String &l : wrapped(body, T(S_SETUP_CHANGE), tw)) {
       text(x, y, body, l.c_str());
       y += 30;
     }
   } else {
-    text(x, y, body, "When it asks for a code, type:");
+    text(x, y, body, T(S_SETUP_CODE));
     y += 66;
     char spaced[10];
     snprintf(spaced, sizeof spaced, "%.3s %.3s", code, code + 3);
     text(x, y, &FreeSansBold24pt7b, spaced);
     y += 30;
-    if (setupState == PROV_CONNECTED) text(x, y + 6, body, "A browser is connected"), y += 34;
+    if (setupState == PROV_CONNECTED) text(x, y + 6, body, T(S_SETUP_CONNECTED)), y += 34;
   }
   int qr = TALL ? min(220, H - y - 140) : 270;
   if (qr >= 120) {
     int qx = TALL ? (W - qr) / 2 : W - qr - 30, qy = TALL ? y + 10 : BODY_Y + 30;
     drawQr(qx, qy, qr, SETUP_URL);
   }
-  snprintf(line, sizeof line, "Closes in %u min if nothing happens", (unsigned)((setupSecondsLeft + 59) / 60));
+  snprintf(line, sizeof line, T(S_SETUP_CLOSES), (unsigned)((setupSecondsLeft + 59) / 60));
   int bh = 60, by = H - bh - 16;
   text(x, by - 16, &FreeSans9pt7b, line);
   setupLeaveY = by;
-  pillButton(x, by, TALL ? W - 2 * x : 330, bh, "Leave setup mode (OK)", false, &FreeSansBold12pt7b);
+  pillButton(x, by, TALL ? W - 2 * x : 330, bh, fitted(&FreeSansBold12pt7b, T(S_SETUP_LEAVE), (TALL ? W - 2 * x : 330) - 16).c_str(), false, &FreeSansBold12pt7b);
 }
 
 // bleprov's hooks: the screen on a change (and once a minute), and the end.
@@ -4751,8 +5142,8 @@ static void setupShow(uint32_t passkey, BleProvState state, uint32_t secondsLeft
 }
 
 static void setupEnd(BleProvEnd why) {
-  static const char *const WHY[] = {"Setup timed out", "Saved", "Settings erased", "Too many tries", "Leaving setup"};
-  setupEnding = WHY[why];
+  static const StrId WHY[] = {S_SETUP_TIMED_OUT, S_SETUP_SAVED, S_SETUP_ERASED, S_SETUP_TOO_MANY, S_SETUP_LEAVING};
+  setupEnding = T(WHY[why]);
   render(false);
   delay(300);
   updMarkGood("restart from setup mode");  // a restart on purpose: no reason to go back to the old firmware
@@ -4770,7 +5161,7 @@ static void startSetupMode() {
   prefs.putBool("setup_next", true);
   canvas->fillScreen(PAPER);
   drawBar();
-  textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, "Restarting into setup mode...");
+  textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, T(S_SETUP_RESTARTING_INTO));
   show(false);
   Serial.println("setup: restarting into Bluetooth setup mode");
   delay(300);
@@ -4782,8 +5173,8 @@ static void startSetupMode() {
 static void serialSetupDone(ProvAfter what) {
   canvas->fillScreen(PAPER);
   drawBar();
-  textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, what == PROV_AFTER_RESET ? "Settings erased" : "Settings saved");
-  textCentre(W / 2, H / 2 + 36, &FreeSans12pt7b, "Restarting...");
+  textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, T(what == PROV_AFTER_RESET ? S_SETUP_ERASED : S_SETTINGS_SAVED));
+  textCentre(W / 2, H / 2 + 36, &FreeSans12pt7b, T(S_N_UPD_RESTARTING));
   show(false);
   updMarkGood("restart after the setup app saved");
   ESP.restart();
@@ -4800,7 +5191,7 @@ static void logHeap(const char *step) {
 static void deepSleep() {
   updMarkGood("deep sleep");  // waking is a restart: it mustn't go back to the old firmware
   canvas->fillScreen(PAPER);
-  textCentre(W / 2, H / 2, TALL ? &FreeSansBold18pt7b : &FreeSansBold24pt7b, "Asleep. Press OK to wake.");
+  textCentre(W / 2, H / 2, TALL ? &FreeSansBold18pt7b : &FreeSansBold24pt7b, T(S_ASLEEP));
   show(true);
   seeed_epaper_panel_sleep(panel);
   while (digitalRead(PIN_BTN_OK) == LOW) delay(20);  // or the held button wakes it at once
@@ -4914,10 +5305,10 @@ static bool sendTelemetry() {
   char status[sizeof telemetryStatus];
   if (ok && timeKnown()) {
     time_t t = time(nullptr);
-    strftime(status, sizeof status, "sent at %H:%M", localtime(&t));
-  } else if (ok) strlcpy(status, "sent", sizeof status);
-  else snprintf(status, sizeof status, "not sent: %s", why.c_str());
-  strlcpy(telemetryStatus, status, sizeof telemetryStatus);
+    tStrftime(status, sizeof status, T(S_TELEMETRY_SENT_AT), localtime(&t));
+  } else if (ok) utf8Copy(status, T(S_TELEMETRY_SENT), sizeof status);
+  else utf8Copy(status, TF(S_TELEMETRY_NOT_SENT, why.c_str()).c_str(), sizeof status);
+  utf8Copy(telemetryStatus, status, sizeof telemetryStatus);
   Serial.printf("telemetry: %d numbers %s%s%s, %u bytes free, largest block %u, net stack %u free\n", (int)m.size(), ok ? "sent" : "NOT sent",
                 ok ? "" : ": ", why.c_str(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)uxTaskGetStackHighWaterMark(nullptr));
@@ -4968,11 +5359,11 @@ static void serviceWifiAsks() {
       if (at >= 0) nets[at].pass = pass;  // a new password for a saved one
       else nets.push_back({ssid, pass});  // the end of the list, as the setup app adds
       String err;
-      if (nets.size() > (size_t)cfg::MAX_WIFI) status = "Connected to " + ssid + ", but not saved: 8 networks are saved already.";
-      else if (!cfg::setWifiInPlace(nets, err)) status = "Connected to " + ssid + ", but not saved: " + err;
-      else status = "Connected to " + ssid + ", and saved.";
+      if (nets.size() > (size_t)cfg::MAX_WIFI) status = TF(S_JOIN_NOT_SAVED_FULL, ssid.c_str());
+      else if (!cfg::setWifiInPlace(nets, err)) status = TF(S_JOIN_NOT_SAVED, ssid.c_str(), err.c_str());
+      else status = TF(S_JOIN_SAVED, ssid.c_str());
     } else if (ok) {
-      status = "Connected to " + ssid + ".";
+      status = TF(S_JOIN_OK, ssid.c_str());
     }
     xSemaphoreTake(dataLock, portMAX_DELAY);
     wifiStatus = status;
@@ -5131,7 +5522,7 @@ static void typedNoteResult(int r) {
   }
   if (r != KB_DONE) return;
   if (notesBusy()) {  // dictation still on its way (or the last note): keep what's typed
-    noteKb.note = "Still busy with speech. A moment, then Done again.";
+    noteKb.note = T(S_KB_STILL_SPEECH);
     return render(false);
   }
   notesTyping = false;
@@ -5147,7 +5538,7 @@ static void typedNoteResult(int r) {
 static void typedNoteTap(int x, int y) { typedNoteResult(keyboardTap(noteKb, x, y)); }
 
 static void typeNote() {
-  keyboardBegin(noteKb, "", "Type a note", "A task or a note", 300);
+  keyboardBegin(noteKb, "", T(S_NOTE_TYPE), T(S_NOTE_TYPE_HINT), 300);
   notesTyping = true;
   noteOpen = -1;
   render(false);
@@ -5160,7 +5551,7 @@ static void voiceNote(bool byTouch = false) {
   if (notesBusy()) {  // the last one is still on the network
     app = APP_NOTES;
     screen = SCREEN_APP;
-    notesSay = notesPending() ? "Still working on the last note. Tap here or press OK to cancel it." : "Still finishing the last note. Try again in a moment.";
+    notesSay = T(notesPending() ? S_NOTE_STILL_WORKING : S_NOTE_STILL_FINISHING);
     if (byTouch) waitForLift();
     render(false);
     return;
@@ -5173,25 +5564,27 @@ static void voiceNote(bool byTouch = false) {
   voiceBusy = true;  // until the words are sorted: no update check meanwhile
   canvas->fillScreen(PAPER);
   drawBar();
-  drawNotes(byTouch ? "Listening... tap the microphone to stop." : "Listening... let go when you're done.");
+  listenHint = T(byTouch ? S_LISTEN_HINT : S_LISTEN_HINT_OK);
+  drawNotes(T(byTouch ? S_NOTE_LISTEN_TAP : S_NOTE_LISTEN_HOLD));
   show(false);
   int16_t *pcm = nullptr;
   micTapPhase = 0;
   size_t samples = byTouch ? micRecord(keepListeningTouch, &pcm)
                            : micRecord([] { return digitalRead(PIN_BTN_OK) == LOW; }, &pcm);
   notesListening = false;
+  listenHint = nullptr;
   if (byTouch) waitForLift();
   voiceNotes++;
   beep(2000, 40);
   if (samples < 16000 / 2) {  // under half a second: a slip of the finger
     free(pcm);
     voiceBusy = false;
-    notesSay = samples ? "That was too short: nothing was sent." : micError();
+    notesSay = samples ? T(S_TOO_SHORT_SENT) : micError();
     render(false);
     return;
   }
   String why;  // speech to text and the AI run on their own task; the loop finishes it (notesFinish)
-  if (!netUp()) free(pcm), notesSay = "No WiFi: I can't turn speech into text.";
+  if (!netUp()) free(pcm), notesSay = T(S_NO_WIFI_SPEECH);
   else if (!notesStart(JOB_NOTE, pcm, samples, "", why)) notesSay = why;
   voiceBusy = notesBusy();
   notesPage = 0;
@@ -5229,7 +5622,7 @@ static void notesPoll() {
 // Cancel: a tap on the strip, or OK, while it's thinking.
 static void notesStop() {
   notesCancel();
-  notesSay = "Cancelled.";
+  notesSay = T(S_CANCELLED);
   render(false);
 }
 
@@ -5443,7 +5836,7 @@ static void tap(int x, int y) {
   if (app == APP_RECIPES) return recipesTap(x, y);
   if (app == APP_GAMES) return gamesTap(x, y);
   if (app == APP_NOTES && notesTyping) return typedNoteTap(x, y);
-  if (app == APP_NOTES && noteOpen < 0 && noteJobPending() && y > noteStripY() - 6) return notesStop();  // the strip says "tap here to cancel"
+  if (app == APP_NOTES && noteOpen < 0 && noteJobPending()) return notesStop();  // the Thinking card says "tap to cancel"
   if (app == APP_NOTES && noteOpen < 0 && onMicButton(x, y)) {
     voiceNote(true);
     return;
@@ -5499,14 +5892,14 @@ static void setDemo(bool on) {
     events.push_back(now);
     add(0, 23, 0, 30, "Call home", "");
     add(1, 9, 30, 30, "Team stand-up", "Video call");
-    add(1, 12, 30, 60, "Lunch with Ana", "Corner bistro");
+    add(1, 12, 30, 60, "Prânz cu Ștefan și Ioana", "Bistro Țărăncuța");  // letters beyond ASCII, for screenshots
     add(1, 18, 0, 60, "Yoga", "Studio 3");
     add(2, 0, 0, 0, "Grandma's birthday", "", true);
     add(2, 10, 0, 90, "Car service", "Garage on Elm St");
     add(2, 19, 30, 120, "Book club", "Library");
     add(3, 8, 0, 45, "Dentist", "Smile Clinic");
-    add(3, 17, 0, 60, "School run", "");
-    add(4, 11, 0, 60, "Coffee with Sam", "Market square");
+    add(3, 17, 0, 60, "Встреча с Анной", "");
+    add(4, 11, 0, 60, "Café mit Zoë und Jürgen", "Marktplatz");
     add(5, 10, 0, 180, "Hike", "North trail");
     std::sort(events.begin(), events.end(), [](const CalEvent &a, const CalEvent &b) { return a.start < b.start; });
     calendarOk = true;
@@ -5626,9 +6019,13 @@ static void devCommands() {
     } else if (line.startsWith("voice ")) {  // a voice note of that many seconds, without the button
       static uint32_t until;
       until = millis() + line.substring(6).toInt() * 1000UL;
-      app = APP_NOTES;
+      screen = SCREEN_APP, app = APP_NOTES, noteOpen = -1, notesTyping = false;
+      listenHint = T(S_SPEAK_NOW);
+      render(false);
+      until = millis() + line.substring(6).toInt() * 1000UL;  // the seconds count from when the card is up
       int16_t *pcm = nullptr;
       size_t samples = micRecord([] { return (int32_t)(millis() - until) < 0; }, &pcm);
+      listenHint = nullptr;
       String why;
       if (!samples) notesSay = micError(), Serial.printf("voice: %s\n", notesSay.c_str());
       else if (!notesStart(JOB_NOTE, pcm, samples, "", why)) notesSay = why, Serial.printf("voice: %s\n", why.c_str());
@@ -5646,15 +6043,41 @@ static void devCommands() {
         render(false);
       }
       Serial.printf("recipe: sample %s%s\n", why.length() ? why.c_str() : "open", r.file.length() ? ", saved" : "");
+    } else if (line.startsWith("note open ")) {  // note open <n>: Notes, the item on row n (0 the first, in list order) full screen
+      std::vector<int> order = notesOrder();
+      int n = line.substring(10).toInt();
+      if (n < 0 || n >= (int)order.size()) Serial.printf("note: no item %d (%d in the list)\n", n, (int)order.size());
+      else {
+        screen = SCREEN_APP, app = APP_NOTES, notesTyping = false, noteOpen = order[n], noteDeleteArmed = false;
+        render(false);
+        Serial.printf("note: open %d: %s\n", n, notesItems()[noteOpen].text.c_str());
+      }
+    } else if (line.startsWith("note type ")) {  // note type <words>: Notes, the words sent as a typed note (the keyboard's Done)
+      openApp(APP_NOTES);
+      typeNote();
+      noteKb.text = line.substring(10);
+      typedNoteResult(KB_DONE);
+    } else if (line.startsWith("note ai ")) {  // note ai <lines, | between them>: applied as if the AI had answered that
+      String out = line.substring(8), say;
+      out.replace("|", "\n");
+      notesApplyAi(out, say);
+      screen = SCREEN_APP, app = APP_NOTES, notesTyping = false, noteOpen = -1, notesPage = 0;
+      notesSay = say;
+      render(false);
+      Serial.printf("note: %s\n", say.c_str());
     } else if (line.startsWith("recipe ask ")) {  // a typed request, as the keyboard sends it
       screen = SCREEN_APP, app = APP_RECIPES;
       recipeAsk(JOB_RECIPE_TYPED, nullptr, 0, line.substring(11));
     } else if (line.startsWith("recipe voice ")) {  // a spoken request of that many seconds, without the button
       static uint32_t until;
       until = millis() + line.substring(13).toInt() * 1000UL;
-      screen = SCREEN_APP, app = APP_RECIPES;
+      screen = SCREEN_APP, app = APP_RECIPES, recipeMode = RM_LIST;
+      listenHint = T(S_SPEAK_NOW);
+      render(false);
+      until = millis() + line.substring(13).toInt() * 1000UL;
       int16_t *pcm = nullptr;
       size_t samples = micRecord([] { return (int32_t)(millis() - until) < 0; }, &pcm);
+      listenHint = nullptr;
       if (!samples) recipeSay = micError(), render(false);
       else recipeAsk(JOB_RECIPE_VOICE, pcm, samples, "");
     } else if (line.startsWith("airelay ")) {  // airelay <host> <port> | off: the AI's requests to a test server, until a restart
@@ -5672,6 +6095,10 @@ static void devCommands() {
     } else if (line == "quote new") {  // the Quote app's New quote
       screen = SCREEN_APP, app = APP_QUOTE;
       quoteNew();
+    } else if (line == "listen show" || line == "listen think" || line == "listen off") {  // the voice card on its own, for screenshots
+      voiceCardDemo = line == "listen show" ? 1 : line == "listen think" ? 2 : 0;
+      Serial.printf("listen: %s\n", line.c_str() + 7);
+      render(false);
     } else if (line == "about") {
       dumpAbout();
     } else if (line.startsWith("fetch ")) {  // fetch now for that app (1 Weather, 2 Calendar, 6 Claude), as OK in it does
@@ -5725,6 +6152,21 @@ static void devCommands() {
       action();
     } else if (line == "demo on" || line == "demo off") {
       setDemo(line == "demo on");
+    } else if (line.startsWith("lang ")) {  // lang <code>: Settings -> Language
+      int l = i18nFind(line.substring(5).c_str());
+      if (l < 0) Serial.println("lang: one of en es pt fr de it ru tr pl ro");
+      else languageChoose(l), render(true);
+    } else if (line == "settings language") {  // Settings, its Language page
+      openApp(APP_SETTINGS);
+      settingsOpenPage(SP_LANGUAGE);
+    } else if (line == "keyboard" || line == "keyboard accents") {  // Notes' keyboard (and its page of accented letters, or the Latin letters in Russian)
+      openApp(APP_NOTES);
+      typeNote();
+      if (line.endsWith("accents")) {
+        if (i18nLang() == L_RU) noteKb.alt = true;
+        else noteKb.layer = 3;
+        render(false);
+      }
     } else if (line.startsWith("turn ")) {  // turn <0..4>: the rotation setting (0 automatic)
       settings.turn = constrain(line.substring(5).toInt(), 0, TURN_COUNT - 1);
       settingsSave();
@@ -5782,6 +6224,7 @@ void setup() {
   cfg::begin();
   cfgSeedFromBuild();  // the author's board: its values, once, from an optional git-ignored header
   netApplyTimezone();
+  i18nSet(i18nFind(cfg::str("device.language").c_str()));  // English when unset or unknown
   for (int pin : {PIN_BTN_OK, PIN_BTN_UP, PIN_BTN_DOWN}) pinMode(pin, INPUT_PULLUP);
   pinMode(PIN_EXTERNAL_POWER, INPUT);
   pinMode(PIN_SD_DETECT, INPUT_PULLUP);
@@ -5849,7 +6292,7 @@ void setup() {
     if (!bleProvStart(h)) {
       Serial.println("setup: Bluetooth didn't start");
       logHeap("setup mode, Bluetooth failed");
-      setupEnding = "Bluetooth didn't start";
+      setupEnding = T(S_BT_DIDNT_START);
       render(true);
       delay(4000);
       ESP.restart();
@@ -5992,6 +6435,7 @@ void loop() {
   okWas = ok;
 
   notesPoll();  // a note's answer has come: apply it and show it
+  notesMarksTick();  // what it added stops standing out after a while
   gamesSave();  // a game's progress changed: written here, on the loop
   quotePoll();  // a quote has come from ZenQuotes
 

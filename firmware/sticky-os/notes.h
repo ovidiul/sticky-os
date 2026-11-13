@@ -8,7 +8,9 @@ struct NoteItem {
   bool task, done;
   String text;
   uint32_t added;  // unix seconds; 0 for items saved before this was kept
+  uint8_t mark = 0;  // NOTE_NEW / NOTE_CHANGED: the last AI answer did this (RAM only, never saved)
 };
+enum : uint8_t { NOTE_NEW = 1, NOTE_CHANGED = 2 };
 
 void notesBegin();                    // loads the saved list
 std::vector<NoteItem> &notesItems();
@@ -16,6 +18,17 @@ void notesDemo(bool on);  // screenshots: show made-up items (never saved) inste
 void notesToggle(int index);          // tick or untick a task; saved at once
 void notesSetTask(int index, bool task);  // a note becomes a task, or the other way; saved
 void notesDelete(int index);          // saved at once
+
+// What the last answer added (NOTE_NEW) or ticked (NOTE_CHANGED) stays
+// marked on screen for a while: the Notes screen clears the marks when the
+// person leaves it or after notesMarkedAt() is two minutes old. RAM only.
+bool notesMarked();        // some item is marked
+uint32_t notesMarkedAt();  // millis() of the answer that marked them
+void notesClearMarks();
+// Testing (the serial "note ai" command): `out` applied as if the AI had
+// answered it ("TASK: ...", "NOTE: ...", "DONE: 2", "SAY: ..." lines) about
+// the list as it is now. `say` is its SAY line.
+void notesApplyAi(const String &out, String &say);
 
 // Records from the microphone while keepGoing() is true (30 s at most).
 // The caller frees *pcm. Returns the number of samples, 16 kHz mono; 0 and

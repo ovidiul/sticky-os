@@ -40,6 +40,7 @@ struct GState {
   MathQ mQ;
   std::vector<MathQ> mPreset;     // a Daily or Practice round, made up front
   String mBanner, mNotice;
+  bool mBannerHint = false;       // the banner is a hint: drawn as maths
   uint32_t mShownAt = 0;
   // Quiz
   int qScreen = 0;                // QS_THEMES
@@ -59,7 +60,7 @@ struct GState {
   char xoBoard[9] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
   bool xoOver = false, xoPlayerStarts = true;
   int xoWin = -1;
-  String xoSay = "You're X. Tap a square.";
+  StrId xoSay = S_G_XO_START;     // what's happening, under the board
 };
 static GState *gs;
 
@@ -106,7 +107,7 @@ static int gTop() { return BODY_Y + G_HEAD_H; }
 // Back, the title, and something on the right (a score).
 static void gHeader(const String &title, const String &right = "", int reserve = 0) {
   int y = BODY_Y + 10, bw = TALL ? 104 : 116;
-  gButton(16, y, bw, 48, "Back", false, ID_BACK);
+  gButton(16, y, bw, 48, T(S_G_BACK), false, ID_BACK);
   int rw = (right.length() ? textW(&FreeSansBold12pt7b, right.c_str()) : 0) + reserve;
   if (rw) textRight(W - 24, y + 32, &FreeSansBold12pt7b, right.c_str());
   int tx = 16 + bw + 18;
@@ -275,17 +276,17 @@ enum GAiFor { AI_NONE, AI_QUIZ, AI_ADVENTURE };
 // Why the AI can't be used now ("" when it can), in the words a screen shows.
 static String gAiWhyNot() {
   if (demoMode) return "";
-  if (!cfg::flag("games.ai")) return "AI in games is off (Settings), so this is the board's own.";
-  if (!notesAiConfigured()) return "There's no OpenAI key on the board, so this is the board's own. Add one in the setup app for any theme.";
-  if (!netUp()) return "No WiFi right now, so this is the board's own.";
+  if (!cfg::flag("games.ai")) return T(S_G_AI_OFF);
+  if (!notesAiConfigured()) return T(S_G_AI_NO_KEY);
+  if (!netUp()) return T(S_G_AI_NO_WIFI);
   return "";
 }
 static bool gAiReady() { return !demoMode && gAiWhyNot().length() == 0; }
 
 
 static void gStartTyping(int forGame) {
-  if (forGame == GAME_QUIZ) keyboardBegin(noteKb, "", "A quiz about...", "dinosaurs, the Olympics, Italian food", 60);
-  else keyboardBegin(noteKb, "", "An adventure in...", "a city under the sea, a toy shop at night", 80);
+  if (forGame == GAME_QUIZ) keyboardBegin(noteKb, "", T(S_G_KB_QUIZ), T(S_G_KB_QUIZ_EG), 60);
+  else keyboardBegin(noteKb, "", T(S_G_KB_ADV), T(S_G_KB_ADV_EG), 80);
   gs->gTyping = true;
   gs->gTypingFor = forGame;
   render(false);
@@ -348,21 +349,21 @@ static void draw2048() {
   snprintf(score, sizeof score, "%d", gs->board2048.score);
   snprintf(best, sizeof best, "%d", max(p.best2048, gs->board2048.score));
   if (TALL) {
-    gHeader("2048");
+    gHeader(gameName(GAME_2048));
     int y = gTop() + 4;
-    text(24, y + 20, &FreeSans12pt7b, "Score");
+    text(24, y + 20, &FreeSans12pt7b, T(S_G_SCORE));
     text(110, y + 22, &FreeSansBold18pt7b, score);
-    textRight(W - 24 - textW(&FreeSansBold18pt7b, best) - 12, y + 20, &FreeSans12pt7b, "Best");
+    textRight(W - 24 - textW(&FreeSansBold18pt7b, best) - 12, y + 20, &FreeSans12pt7b, T(S_G_BEST));
     textRight(W - 24, y + 22, &FreeSansBold18pt7b, best);
   } else {  // the board on the left; on the right the scores and the buttons
     int px = x0 + side + 40, pr = W - 24;
     text(px, BODY_Y + 52, &FreeSansBold24pt7b, "2048");
-    text(px, BODY_Y + 100, &FreeSans12pt7b, "Score");
+    text(px, BODY_Y + 100, &FreeSans12pt7b, T(S_G_SCORE));
     textRight(pr, BODY_Y + 102, &FreeSansBold18pt7b, score);
-    text(px, BODY_Y + 142, &FreeSans12pt7b, "Best");
+    text(px, BODY_Y + 142, &FreeSans12pt7b, T(S_G_BEST));
     textRight(pr, BODY_Y + 144, &FreeSansBold18pt7b, best);
     canvas->drawFastHLine(px, BODY_Y + 162, pr - px, INK);
-    gLeft(px, BODY_Y + 196, &FreeSans12pt7b, gs->board2048.over ? "No moves left." : gs->board2048.won ? "2048! Keep going for more." : "Swipe on the board to slide the tiles. UP and DOWN slide them too.", pr - px, 28, 4);
+    gLeft(px, BODY_Y + 196, &FreeSans12pt7b, T(gs->board2048.over ? S_G_2048_OVER : gs->board2048.won ? S_G_2048_WON : S_G_2048_HOW), pr - px, 28, 4);
   }
   for (int r = 0; r < 4; r++)
     for (int k = 0; k < 4; k++) g2048Tile(x0 + gap + k * (c + gap), y0 + gap + r * (c + gap), c, gs->board2048.cell[r][k]);
@@ -372,20 +373,20 @@ static void draw2048() {
     canvas->fillRoundRect(bx - 4, by - 4, bw + 8, bh + 8, 18, PAPER);
     canvas->fillRoundRect(bx, by, bw, bh, 16, INK);
     canvas->setTextColor(PAPER);
-    textCentre(bx + bw / 2, by + 48, &FreeSansBold18pt7b, "No moves left");
-    String line = gs->board2048.score >= p.best2048 && gs->board2048.score ? "A new best: " + String(gs->board2048.score) : "Score " + String(gs->board2048.score);
+    textCentre(bx + bw / 2, by + 48, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, T(S_G_2048_OVER_TITLE), bw - 20).c_str());
+    String line = TF(gs->board2048.score >= p.best2048 && gs->board2048.score ? S_G_2048_NEW_BEST : S_G_2048_SCORE, gs->board2048.score);
     textCentre(bx + bw / 2, by + 90, &FreeSans12pt7b, line.c_str());
-    textCentre(bx + bw / 2, by + 124, &FreeSans12pt7b, "Press OK for a new game");
+    textCentre(bx + bw / 2, by + 124, &FreeSans12pt7b, fitted(&FreeSans12pt7b, T(S_G_2048_PRESS_OK), bw - 20).c_str());
     canvas->setTextColor(INK);
   }
   if (TALL) {
     int y = y0 + side + 24, bw = (W - 64) / 2;
-    gButton(24, y, bw, 56, "New game", gs->board2048.over, ID_NEW);
-    gLeft(24 + bw + 16, y + 22, &FreeSans9pt7b, "Swipe on the board, or UP / DOWN", W - 24 - bw - 40, 22, 2);
+    gButton(24, y, bw, 56, T(S_G_NEW_GAME), gs->board2048.over, ID_NEW);
+    gLeft(24 + bw + 16, y + 22, &FreeSans9pt7b, T(S_G_2048_HOW_SHORT), W - 24 - bw - 40, 22, 2);
   } else {
     int px = x0 + side + 40, bw = W - 24 - px;
-    gButton(px, H - 76, bw, 56, "New game", gs->board2048.over, ID_NEW);
-    gButton(px, H - 144, bw, 56, "Games", false, ID_BACK);
+    gButton(px, H - 76, bw, 56, T(S_G_NEW_GAME), gs->board2048.over, ID_NEW);
+    gButton(px, H - 144, bw, 56, T(S_G_GAMES), false, ID_BACK);
   }
 }
 
@@ -482,11 +483,10 @@ static void memCardBox(int i, int &x, int &y, int &w, int &h) {
 
 static void drawMemory() {
   GameProgress &p = gameProgress();
-  char right[40] = "";
   if (gs->memScreen == MEM_START) {
-    gHeader("Memory");
+    gHeader(gameName(GAME_MEMORY));
     int y = gTop() + (TALL ? 40 : 20);
-    y = gCentred(W / 2, y + 10, &FreeSans12pt7b, "Turn over two cards at a time and find all the pairs, in as few moves as you can.", W - 80, 30);
+    y = gCentred(W / 2, y + 10, &FreeSans12pt7b, T(S_G_MEM_HOW), W - 80, 30);
     int bw = TALL ? W - 64 : (W - 80) / 2, bh = TALL ? 120 : 150, by = y + 20;
     for (int k = 0; k < 2; k++) {
       int bx = TALL ? 32 : 32 + k * (bw + 16), yy = TALL ? by + k * (bh + 20) : by;
@@ -494,8 +494,8 @@ static void drawMemory() {
       if (filled) canvas->fillRoundRect(bx, yy, bw, bh, 20, INK);
       else canvas->drawRoundRect(bx, yy, bw, bh, 20, INK), canvas->drawRoundRect(bx + 1, yy + 1, bw - 2, bh - 2, 19, INK);
       canvas->setTextColor(filled ? PAPER : INK);
-      textCentre(bx + bw / 2, yy + bh / 2 - 6, &FreeSansBold18pt7b, k ? "Hard: 20 cards" : "Easy: 12 cards");
-      String best = p.memBest[k] ? "Best " + String(p.memBest[k]) + " moves" : String("Not played yet");
+      textCentre(bx + bw / 2, yy + bh / 2 - 6, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, T(k ? S_G_MEM_HARD : S_G_MEM_EASY), bw - 20).c_str());
+      String best = p.memBest[k] ? TP(S_G_MEM_BEST, p.memBest[k]) : String(T(S_G_MEM_NOT_PLAYED));
       textCentre(bx + bw / 2, yy + bh / 2 + 32, &FreeSans12pt7b, best.c_str());
       canvas->setTextColor(INK);
       gTarget(bx, yy, bw, bh, k);
@@ -503,23 +503,22 @@ static void drawMemory() {
     return;
   }
   if (gs->memScreen == MEM_WON) {
-    gHeader("Memory");
+    gHeader(gameName(GAME_MEMORY));
     int cy = gTop() + (TALL ? 120 : 60);
-    textCentre(W / 2, cy, &FreeSansBold24pt7b, "All pairs found!");
+    textCentre(W / 2, cy, &FreeSansBold24pt7b, fitted(&FreeSansBold24pt7b, T(S_G_MEM_WON), W - 32).c_str());
     for (int s = 0; s < 3; s++) {
       int stars = gs->memMoves <= gs->memCards * 3 / 4 + 1 ? 3 : gs->memMoves <= gs->memCards ? 2 : 1;
       gStar(W / 2 - 70 + s * 70, cy + 60, 26, s < stars);
     }
-    String line = String(gs->memMoves) + " moves, " + (gs->memHard ? "hard" : "easy");
+    String line = TP(gs->memHard ? S_G_MEM_MOVES_HARD : S_G_MEM_MOVES_EASY, gs->memMoves);
     textCentre(W / 2, cy + 130, &FreeSansBold18pt7b, line.c_str());
-    textCentre(W / 2, cy + 170, &FreeSans12pt7b, gs->memNewBest ? "A new best!" : ("Your best: " + String(p.memBest[gs->memHard]) + " moves").c_str());
+    textCentre(W / 2, cy + 170, &FreeSans12pt7b, (gs->memNewBest ? String(T(S_G_NEW_BEST)) : TP(S_G_MEM_YOUR_BEST, p.memBest[gs->memHard])).c_str());
     int bw = TALL ? (W - 64) / 2 : 220, by = H - 90;
-    gButton(W / 2 - bw - 8, by, bw, 60, "Again", true, ID_AGAIN);
-    gButton(W / 2 + 8, by, bw, 60, "Games", false, ID_GAMES);
+    gButton(W / 2 - bw - 8, by, bw, 60, T(S_G_AGAIN), true, ID_AGAIN);
+    gButton(W / 2 + 8, by, bw, 60, T(S_G_GAMES), false, ID_GAMES);
     return;
   }
-  snprintf(right, sizeof right, "%d pair%s to go", gs->memPairs, gs->memPairs == 1 ? "" : "s");
-  gHeader("Moves " + String(gs->memMoves), right);
+  gHeader(TF(S_G_MEM_MOVES, gs->memMoves), TP(S_G_MEM_PAIRS_LEFT, gs->memPairs));
   for (int i = 0; i < gs->memCards; i++) {
     int x, y, w, h;
     memCardBox(i, x, y, w, h);
@@ -598,12 +597,9 @@ static int mStars() { return gs->mWrong == 0 ? 3 : gs->mWrong <= 2 ? 2 : 1; }
 
 // Maths text: * is drawn as a times sign and % as a divided-by sign (the fonts have neither).
 static int mathTextW(const GFXfont *f, const String &s) {
-  int w = 0;
-  for (size_t i = 0; i < s.length(); i++) {
-    char c = s[i] == '*' || s[i] == '%' ? '+' : s[i];
-    if (c >= f->first && c <= f->last) w += f->glyph[c - f->first].xAdvance;
-  }
-  return w;
+  String t = s;  // the signs take a plus's room; the rest measured as text (UTF-8)
+  t.replace("*", "+"), t.replace("%", "+");
+  return textW(f, t.c_str());
 }
 
 static void mathText(int x, int y, const GFXfont *f, const String &s, uint16_t colour = INK) {
@@ -613,7 +609,7 @@ static void mathText(int x, int y, const GFXfont *f, const String &s, uint16_t c
   for (size_t i = 0; i < s.length(); i++) {
     char c = s[i];
     if (c != '*' && c != '%') {
-      canvas->print(c);
+      canvas->write((uint8_t)c);  // byte by byte: the canvas puts a UTF-8 letter back together
       continue;
     }
     int cx = canvas->getCursorX() + plus.xOffset + plus.width / 2, cy = y + plus.yOffset + plus.height / 2;
@@ -641,6 +637,7 @@ static void mStartRound(const String &banner) {
   gs->mIndex = gs->mScore = gs->mStreak = gs->mRight = gs->mWrong = gs->mMastered = 0;
   gs->mHearts = M_HEARTS;
   gs->mBanner = banner;
+  gs->mBannerHint = false;
   gs->mScreen = MS_PLAY;
   gs->gFocusId = -1;
   mLoadQuestion();
@@ -651,14 +648,14 @@ static void mStartLevel(int level) {
   gs->mMode = MM_QUEST;
   gs->mLevel = constrain(level, 1, MATHS_LEVELS);
   gs->mTotal = MATHS_QUESTIONS + 1;
-  mStartRound("Level " + String(gs->mLevel) + ": " + MATHS_LEVEL_NAMES[gs->mLevel - 1]);
+  mStartRound(TF(S_G_M_LEVEL_BANNER, gs->mLevel, mathsLevelName(gs->mLevel - 1)));
 }
 
 static void mStartDaily() {
   long today = gToday();
   if (!today) {
     gs->mMode = MM_DAILY;
-    gs->mNotice = "The daily challenge needs today's date. Connect to WiFi, then try again.";
+    gs->mNotice = T(S_G_M_NO_DATE);
     gs->mScreen = MS_NOTICE;
     gs->gFocusId = -1;
     return render(false);
@@ -667,14 +664,14 @@ static void mStartDaily() {
   gs->mLevel = 5;  // its points weigh like a middle level
   gs->mPreset = mathDaily(today);
   gs->mTotal = gs->mPreset.size();
-  mStartRound(gamesDailyDone(today) ? "Done today: once more, just for fun" : "Today's five questions");
+  mStartRound(T(gamesDailyDone(today) ? S_G_M_DAILY_AGAIN : S_G_M_DAILY_BANNER));
 }
 
 static void mStartPractice() {
   gs->mMode = MM_PRACTICE;
   std::vector<MathQ> &missed = mathMissed();
   if (missed.empty()) {
-    gs->mNotice = "Nothing to practise: questions you get wrong in Maths Quest come here, until you get them right first time.";
+    gs->mNotice = T(S_G_M_NOTHING);
     gs->mScreen = MS_NOTICE;
     gs->gFocusId = -1;
     return render(false);
@@ -687,7 +684,7 @@ static void mStartPractice() {
     gs->mPreset.push_back(q);
   }
   gs->mTotal = gs->mPreset.size();
-  mStartRound("Practice: the ones that were tricky");
+  mStartRound(T(S_G_M_PRACTICE_BANNER));
 }
 
 static void mFinish() {
@@ -731,14 +728,16 @@ static void mAnswer(int i) {
       gs->gFocusId = -1;
       return render(true);
     }
-    gs->mBanner = "Hint: " + gs->mQ.hint;
+    gs->mBanner = TF(S_G_M_HINT, gs->mQ.hint.c_str());
+    gs->mBannerHint = true;
     return render(false);
   }
   gs->mRight++;
+  gs->mBannerHint = false;
   int points = 10 * gs->mLevel;
   if (gs->mMissedThis) {
     points /= 2;
-    gs->mBanner = "Got it! +" + String(points);
+    gs->mBanner = TF(S_G_M_GOT_IT, points);
   } else {
     if (gs->mMode == MM_PRACTICE) mathForget(gs->mQ), gs->mMastered++;
     gs->mStreak++;
@@ -747,13 +746,13 @@ static void mAnswer(int i) {
     if (fast) points += 5 * gs->mLevel;
     points *= mult;
     if (mBoss()) points *= 3;
-    gs->mBanner = (mult > 1 ? "Streak x" + String(mult) : fast ? String("Quick!") : String("Right!")) + " +" + String(points);
+    gs->mBanner = mult > 1 ? TF(S_G_M_STREAK, mult, points) : TF(fast ? S_G_M_QUICK : S_G_M_RIGHT, points);
   }
   gs->mScore += points;
   beep(2200, 40);
   if (gs->mIndex + 1 >= gs->mTotal) return mFinish();
   gs->mIndex++;
-  if (mBoss()) gs->mBanner = "The boss question: 3 times the points";
+  if (mBoss()) gs->mBanner = T(S_G_M_BOSS);
   mLoadQuestion();
   render(false);
 }
@@ -762,7 +761,7 @@ static void drawMathsMap() {
   GameProgress &p = gameProgress();
   int sum = 0;
   for (int i = 0; i < MATHS_LEVELS; i++) sum += p.mathsBest[i];
-  gHeader("Maths Quest", sum ? "Best total " + String(sum) : String(""));
+  gHeader(gameName(GAME_MATHS), sum ? TF(S_G_M_BEST_TOTAL, sum) : String(""));
   int cols = TALL ? 3 : 5, gap = 14, tw = (W - 48 - (cols - 1) * gap) / cols, th = TALL ? 116 : 118, top = gTop() + 10;
   for (int i = 0; i < MATHS_LEVELS; i++) {
     int x = 24 + (i % cols) * (tw + gap), y = top + (i / cols) * (th + gap);
@@ -780,24 +779,23 @@ static void drawMathsMap() {
     canvas->drawRoundRect(x + 1, y + 1, tw - 2, th - 2, 13, INK);
     String n = String(i + 1);
     textCentre(x + tw / 2, y + 44, &FreeSansBold24pt7b, n.c_str());
-    textCentre(x + tw / 2, y + 70, &FreeSans9pt7b, fitted(&FreeSans9pt7b, MATHS_LEVEL_NAMES[i], tw - 10).c_str());
+    textCentre(x + tw / 2, y + 70, &FreeSans9pt7b, fitted(&FreeSans9pt7b, mathsLevelName(i), tw - 10).c_str());
     for (int s = 0; s < 3; s++) gStar(x + tw / 2 - 26 + s * 26, y + th - 22, 10, s < p.mathsStars[i]);
     gTarget(x, y, tw, th, i);
   }
   int rows = (MATHS_LEVELS + cols - 1) / cols, by = top + rows * (th + gap) + (TALL ? 14 : 0);
   by = max(by, H - 76);
   int bw = (W - 64) / 2;
-  gButton(24, min(by, H - 76), bw, 56, ("Play level " + String(p.mathsUnlocked)).c_str(), true, ID_PLAY);
-  String practise = mathMissed().empty() ? String("Practice") : "Practice (" + String(mathMissed().size()) + ")";
+  gButton(24, min(by, H - 76), bw, 56, TF(S_G_M_PLAY_LEVEL, p.mathsUnlocked).c_str(), true, ID_PLAY);
+  String practise = mathMissed().empty() ? String(T(S_G_M_PRACTICE)) : TF(S_G_M_PRACTICE_N, (int)mathMissed().size());
   gButton(40 + bw, min(by, H - 76), bw, 56, practise.c_str(), false, ID_PRACTICE);
 }
 
 static void drawMathsPlay() {
   String title;
-  const char *what = gs->mMode == MM_QUEST ? "Level" : gs->mMode == MM_DAILY ? "Daily" : "Practice";
-  if (mBoss()) title = "Level " + String(gs->mLevel) + ": boss";
-  else if (gs->mMode == MM_QUEST) title = TALL ? String(gs->mIndex + 1) + " of " + MATHS_QUESTIONS : String(what) + " " + gs->mLevel + ":  " + (gs->mIndex + 1) + " / " + MATHS_QUESTIONS;
-  else title = TALL ? String(gs->mIndex + 1) + " of " + gs->mTotal : String(what) + "  " + (gs->mIndex + 1) + " / " + gs->mTotal;
+  if (mBoss()) title = TF(S_G_M_BOSS_TITLE, gs->mLevel);
+  else if (gs->mMode == MM_QUEST) title = TALL ? TF(S_G_N_OF_M, gs->mIndex + 1, MATHS_QUESTIONS) : TF(S_G_M_LEVEL_TITLE, gs->mLevel, gs->mIndex + 1, MATHS_QUESTIONS);
+  else title = TALL ? TF(S_G_N_OF_M, gs->mIndex + 1, gs->mTotal) : TF(gs->mMode == MM_DAILY ? S_G_M_DAILY_TITLE : S_G_M_PRACTICE_TITLE, gs->mIndex + 1, gs->mTotal);
   gHeader(title, String(gs->mScore), mUsesHearts() ? M_HEARTS * 34 + 16 : 0);
   if (mUsesHearts()) {  // the hearts left of the score
     int right = W - 24 - textW(&FreeSansBold12pt7b, String(gs->mScore).c_str()) - 24;
@@ -805,7 +803,7 @@ static void drawMathsPlay() {
   }
   int y = gTop() + (TALL ? 22 : 18);
   if (gs->mBanner.length()) {
-    bool hint = gs->mBanner.startsWith("Hint");
+    bool hint = gs->mBannerHint;
     const GFXfont *f = hint ? &FreeSans12pt7b : &FreeSansBold12pt7b;
     String b = gs->mBanner;
     if (hint) {  // a hint is maths too
@@ -840,56 +838,56 @@ static void drawMathsPlay() {
 }
 
 static void drawMathsEnd() {
-  gHeader(gs->mMode == MM_QUEST ? "Maths Quest" : gs->mMode == MM_DAILY ? "Daily maths" : "Practice");
+  gHeader(gs->mMode == MM_QUEST ? gameName(GAME_MATHS) : gs->mMode == MM_DAILY ? gameName(GAME_DAILY) : T(S_G_M_PRACTICE));
   int cy = gTop() + (TALL ? 110 : 56);
   String title, line1, line2;
   int stars = -1;
-  const char *left = "Games", *right = "Again";
+  const char *left = T(S_G_GAMES), *right = T(S_G_AGAIN);
   int leftId = ID_GAMES, rightId = ID_AGAIN;
   switch (gs->mScreen) {
     case MS_LEVEL_DONE:
-      title = "Level " + String(gs->mLevel) + " done!";
+      title = TF(S_G_M_LEVEL_DONE, gs->mLevel);
       stars = mStars();
-      line1 = "Score " + String(gs->mScore) + (gs->mNewBest ? ", a new best" : "");
-      line2 = String(gs->mRight) + " right, " + gs->mWrong + " wrong";
-      left = "Levels", leftId = ID_BACK;
-      if (gs->mLevel < MATHS_LEVELS) right = "Next level", rightId = ID_NEXT;
+      line1 = TF(gs->mNewBest ? S_G_M_SCORE_BEST : S_G_2048_SCORE, gs->mScore);
+      line2 = TF(S_G_M_RIGHT_WRONG, gs->mRight, gs->mWrong);
+      left = T(S_G_M_LEVELS), leftId = ID_BACK;
+      if (gs->mLevel < MATHS_LEVELS) right = T(S_G_M_NEXT_LEVEL), rightId = ID_NEXT;
       break;
     case MS_OUT:
-      title = "Out of hearts";
-      line1 = "Score " + String(gs->mScore) + ", question " + (gs->mIndex + 1) + " of " + gs->mTotal;
-      line2 = "So close! The ones you missed wait in Practice.";
-      left = gs->mMode == MM_QUEST ? "Levels" : "Games", leftId = gs->mMode == MM_QUEST ? ID_BACK : ID_GAMES;
-      right = "Try again", rightId = ID_RETRY;
+      title = T(S_G_M_OUT);
+      line1 = TF(S_G_M_OUT_LINE, gs->mScore, gs->mIndex + 1, gs->mTotal);
+      line2 = T(S_G_M_SO_CLOSE);
+      left = T(gs->mMode == MM_QUEST ? S_G_M_LEVELS : S_G_GAMES), leftId = gs->mMode == MM_QUEST ? ID_BACK : ID_GAMES;
+      right = T(S_G_TRY_AGAIN), rightId = ID_RETRY;
       break;
     case MS_DAILY_DONE: {
       long today = gToday();
       int streak = gamesDailyStreak(today);
-      title = "Daily done!";
+      title = T(S_G_M_DAILY_DONE);
       stars = mStars();
-      line1 = streak == 1 ? String("1 day in a row") : String(streak) + " days in a row";
-      line2 = "Score " + String(gs->mScore) + ", " + gs->mRight + " of " + gs->mTotal + " first time. Come back tomorrow!";
+      line1 = TP(S_G_DAYS_IN_ROW, streak);
+      line2 = TF(S_G_M_DAILY_LINE, gs->mScore, gs->mRight, gs->mTotal);
       break;
     }
     case MS_PRACTICE_DONE:
-      title = "Practice done";
-      line1 = "Mastered " + String(gs->mMastered) + " of " + gs->mTotal;
-      line2 = mathMissed().empty() ? String("Nothing left to practise. Well done!") : String(mathMissed().size()) + " still to practise";
-      if (mathMissed().empty()) right = "Maths Quest", rightId = ID_BACK;
+      title = T(S_G_M_PRACTICE_DONE);
+      line1 = TF(S_G_M_MASTERED, gs->mMastered, gs->mTotal);
+      line2 = mathMissed().empty() ? String(T(S_G_M_ALL_PRACTISED)) : TP(S_G_M_STILL_TO_PRACTISE, (long)mathMissed().size());
+      if (mathMissed().empty()) right = gameName(GAME_MATHS), rightId = ID_BACK;
       break;
     default:  // MS_NOTICE
-      title = gs->mMode == MM_DAILY ? "No date yet" : "All clear";
+      title = T(gs->mMode == MM_DAILY ? S_G_M_NO_DATE_TITLE : S_G_M_ALL_CLEAR);
       line2 = gs->mNotice;
-      right = "Maths Quest", rightId = ID_BACK;
+      right = gameName(GAME_MATHS), rightId = ID_BACK;
       break;
   }
-  textCentre(W / 2, cy, &FreeSansBold24pt7b, title.c_str());
+  textCentre(W / 2, cy, &FreeSansBold24pt7b, fitted(&FreeSansBold24pt7b, title, W - 32).c_str());
   int y = cy + 30;
   if (stars >= 0) {
     for (int s = 0; s < 3; s++) gStar(W / 2 - 74 + s * 74, cy + 66, 28, s < stars);
     y = cy + 130;
   }
-  if (line1.length()) textCentre(W / 2, y + 12, &FreeSansBold18pt7b, line1.c_str()), y += 52;
+  if (line1.length()) textCentre(W / 2, y + 12, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, line1, W - 32).c_str()), y += 52;
   gCentred(W / 2, y, &FreeSans12pt7b, line2, W - 80, 30, 3);
   int bw = TALL ? (W - 64) / 2 : 240, by = H - 86;
   gButton(W / 2 - bw - 8, by, bw, 60, left, false, leftId);
@@ -993,8 +991,8 @@ static void quizThemeIcon(int t, int cx, int cy, int s) {
 
 static void drawQuizThemes() {
   GameProgress &p = gameProgress();
-  gHeader("Quiz", p.quizBest ? "Best " + String(p.quizBest) + " of 8" : String(""));
-  String note = gs->qNote.length() ? gs->qNote : gAiReady() ? String("Pick a theme: the AI writes eight questions on it.") : demoMode ? String("Pick a theme for eight questions.") : gAiWhyNot();
+  gHeader(gameName(GAME_QUIZ), p.quizBest ? TF(S_G_QUIZ_BEST, p.quizBest) : String(""));
+  String note = gs->qNote.length() ? gs->qNote : gAiReady() ? String(T(S_G_Q_PICK_AI)) : demoMode ? String(T(S_G_Q_PICK)) : gAiWhyNot();
   int y = gLeft(24, gTop() + 22, &FreeSans12pt7b, note, W - 48, 28, 3) + 2;
   int cols = TALL ? 2 : 4, gap = 14, rows = 4 / (TALL ? 1 : 2);
   int tw = (W - 48 - (cols - 1) * gap) / cols, th = min(TALL ? 140 : 140, (H - 16 - y - (rows - 1) * gap) / rows);
@@ -1002,8 +1000,8 @@ static void drawQuizThemes() {
   for (int i = 0; i < 8; i++) {
     int x = 24 + (i % cols) * (tw + gap), yy = y + (i / cols) * (th + gap);
     bool off = i == Q_OWN && !ai && !demoMode;
-    const char *label = i < QUIZ_THEMES ? QUIZ_THEME_NAMES[i] : i == Q_OWN ? "Your own theme" : "A mix";
-    const char *sub = off ? "needs the AI" : i == Q_MIX ? "built in" : nullptr;
+    const char *label = i < QUIZ_THEMES ? quizThemeName(i) : T(i == Q_OWN ? S_G_Q_OWN : S_G_Q_MIX);
+    const char *sub = off ? T(S_G_NEEDS_AI) : i == Q_MIX ? T(S_G_Q_BUILT_IN) : nullptr;
     int iconY = gChoiceTile(x, yy, tw, th, label, sub, off, i == Q_MIX);
     quizThemeIcon(i, x + tw / 2, iconY, i == Q_OWN ? 40 : 52);
     if (!off) gTarget(x, yy, tw, th, i);
@@ -1012,12 +1010,12 @@ static void drawQuizThemes() {
 }
 
 static void drawQuizWait() {
-  gHeader("Quiz");
+  gHeader(gameName(GAME_QUIZ));
   int cy = BODY_Y + BODY_H / 2 - 60;
   gameIcon(GAME_QUIZ, W / 2, cy - 50, 80);
-  gCentred(W / 2, cy + 40, &FreeSansBold18pt7b, "Writing a quiz about " + gs->qTheme + "...", W - 60, 40, 2);
-  textCentre(W / 2, cy + 130, &FreeSans12pt7b, "This takes 10 to 40 seconds.");
-  gButton(W / 2 - 110, H - 96, 220, 60, "Cancel", false, ID_CANCEL);
+  gCentred(W / 2, cy + 40, &FreeSansBold18pt7b, TF(S_G_Q_WRITING, gs->qTheme.c_str()), W - 60, 40, 2);
+  textCentre(W / 2, cy + 130, &FreeSans12pt7b, fitted(&FreeSans12pt7b, T(S_G_Q_TAKES), W - 32).c_str());
+  gButton(W / 2 - 110, H - 96, 220, 60, T(S_G_CANCEL), false, ID_CANCEL);
 }
 
 static void quizAnswerBox(int i, int &x, int &y, int &w, int &h) {
@@ -1031,15 +1029,15 @@ static void quizAnswerBox(int i, int &x, int &y, int &w, int &h) {
 
 static void drawQuizQuestion() {
   const QuizQ &q = gs->qQuiz[gs->qNum];
-  String title = (TALL ? "" : "Question ") + String(gs->qNum + 1) + (TALL ? " of " : " / ") + String(gs->qQuiz.size());
+  String title = TF(TALL ? S_G_N_OF_M : S_G_Q_TITLE, gs->qNum + 1, (int)gs->qQuiz.size());
   bool answered = gs->qPicked >= 0;
   if (answered) {  // Next sits where the score was
     int y = BODY_Y + 10, bw = TALL ? 104 : 116;
-    gButton(16, y, bw, 48, "Back", false, ID_BACK);
+    gButton(16, y, bw, 48, T(S_G_BACK), false, ID_BACK);
     text(16 + bw + 18, y + 35, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, title, W - 16 - bw - 18 - 190).c_str());
-    gButton(W - 24 - 150, y, 150, 48, gs->qNum + 1 < (int)gs->qQuiz.size() ? "Next" : "Results", true, ID_NEXT);
+    gButton(W - 24 - 150, y, 150, 48, T(gs->qNum + 1 < (int)gs->qQuiz.size() ? S_G_Q_NEXT : S_G_Q_RESULTS), true, ID_NEXT);
   } else {
-    gHeader(title, (gs->qStreak >= 3 ? "Streak x2, score " : "Score ") + String(gs->qScore));
+    gHeader(title, TF(gs->qStreak >= 3 ? S_G_Q_STREAK_SCORE : S_G_Q_SCORE, gs->qScore));
   }
   int ax, ay, aw, ah;
   quizAnswerBox(0, ax, ay, aw, ah);
@@ -1050,7 +1048,7 @@ static void drawQuizQuestion() {
     gLeft(24, top + 8, f, q.q, W - 48, f == &FreeSansBold18pt7b ? 40 : 30, max(1, room / 30));
   } else {
     bool right = gs->qPicked == q.answer;
-    String verdict = right ? String(gs->qStreak >= 3 ? "Right! +200" : "Right! +100") : "Not quite: it's " + q.options[q.answer] + ".";
+    String verdict = right ? TF(S_G_Q_RIGHT_POINTS, gs->qStreak >= 3 ? 200 : 100) : TF(S_G_Q_NOT_QUITE, q.options[q.answer].c_str());
     text(24, top + 8, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, verdict, W - 48).c_str());
     gLeft(24, top + 48, &FreeSans12pt7b, q.fact, W - 48, 28, max(1, (room - 44) / 28));
   }
@@ -1078,28 +1076,28 @@ static void drawQuizQuestion() {
 
 static void drawQuizDone() {
   GameProgress &p = gameProgress();
-  gHeader("Quiz");
+  gHeader(gameName(GAME_QUIZ));
   int cy = gTop() + (TALL ? 120 : 60);
-  textCentre(W / 2, cy, &FreeSansBold24pt7b, "Quiz done!");
+  textCentre(W / 2, cy, &FreeSansBold24pt7b, fitted(&FreeSansBold24pt7b, T(S_G_Q_DONE), W - 32).c_str());
   int n = gs->qQuiz.size(), stars = gs->qRight * 8 >= n * 7 ? 3 : gs->qRight * 8 >= n * 5 ? 2 : gs->qRight * 8 >= n * 3 ? 1 : 0;
   for (int s = 0; s < 3; s++) gStar(W / 2 - 74 + s * 74, cy + 62, 28, s < stars);
-  textCentre(W / 2, cy + 140, &FreeSansBold18pt7b, (String(gs->qRight) + " of " + n + " right, score " + gs->qScore).c_str());
-  String sub = gs->qTheme + (gs->qOffline ? ", the board's own questions" : "") + ". Best " + String(p.quizBest) + " of 8.";
+  textCentre(W / 2, cy + 140, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, TF(S_G_Q_DONE_LINE, gs->qRight, n, gs->qScore), W - 32).c_str());
+  String sub = TF(gs->qOffline ? S_G_Q_DONE_SUB_OWN : S_G_Q_DONE_SUB, gs->qTheme.c_str(), p.quizBest);
   gCentred(W / 2, cy + 184, &FreeSans12pt7b, sub, W - 80, 28, 2);
   int bw = TALL ? (W - 64) / 2 : 240, by = H - 86;
-  gButton(W / 2 - bw - 8, by, bw, 60, "Themes", false, ID_BACK);
-  gButton(W / 2 + 8, by, bw, 60, "Another one", true, ID_AGAIN);
+  gButton(W / 2 - bw - 8, by, bw, 60, T(S_G_Q_THEMES), false, ID_BACK);
+  gButton(W / 2 + 8, by, bw, 60, T(S_G_Q_ANOTHER), true, ID_AGAIN);
 }
 
 static void drawQuizNotice() {
-  gHeader("Quiz");
+  gHeader(gameName(GAME_QUIZ));
   int cy = gTop() + (TALL ? 120 : 50);
-  textCentre(W / 2, cy, &FreeSansBold18pt7b, "No AI quiz this time");
+  textCentre(W / 2, cy, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, T(S_G_Q_NO_AI), W - 32).c_str());
   int y = gCentred(W / 2, cy + 50, &FreeSans12pt7b, gs->qFailed, W - 80, 30, 4);
-  gCentred(W / 2, y + 16, &FreeSans12pt7b, "You can play the board's own questions instead.", W - 80, 30, 2);
+  gCentred(W / 2, y + 16, &FreeSans12pt7b, T(S_G_Q_OWN_INSTEAD), W - 80, 30, 2);
   int bw = TALL ? (W - 64) / 2 : 300, by = H - 86;
-  gButton(W / 2 - bw - 8, by, bw, 60, "Back", false, ID_BACK);
-  gButton(W / 2 + 8, by, bw, 60, "Play the board's own", true, ID_OFFLINE);
+  gButton(W / 2 - bw - 8, by, bw, 60, T(S_G_BACK), false, ID_BACK);
+  gButton(W / 2 + 8, by, bw, 60, T(S_G_Q_PLAY_OWN), true, ID_OFFLINE);
 }
 
 static void drawQuiz() {
@@ -1124,7 +1122,7 @@ static void quizBegin(const std::vector<QuizQ> &questions, bool offline) {
 
 static void quizPlayOffline(int theme) {
   gs->qThemeIndex = theme;
-  gs->qTheme = theme >= 0 ? QUIZ_THEME_NAMES[theme] : "A mix";
+  gs->qTheme = theme >= 0 ? quizThemeName(theme) : T(S_G_Q_MIX);
   quizBegin(quizBuiltIn(theme, QUIZ_LENGTH), true);
 }
 
@@ -1133,7 +1131,7 @@ static void quizAsk(const String &theme, int themeIndex) {
   gs->qTheme = theme, gs->qThemeIndex = themeIndex, gs->qNote = "";
   if (!gAiReady()) return quizPlayOffline(themeIndex);
   String why;
-  if (!notesStartGame("quiz", QUIZ_INSTRUCTIONS, QUIZ_SCHEMA, quizInput(theme), 45000, why)) {
+  if (!notesStartGame("quiz", quizInstructions(), QUIZ_SCHEMA, quizInput(theme), 45000, why)) {
     gs->qNote = why;
     gs->qScreen = QS_THEMES;
     return render(false);
@@ -1203,7 +1201,7 @@ static void actQuiz(int id) {
   switch (gs->qScreen) {
     case QS_THEMES:
       if (id == ID_BACK) gs->gGame = -1, gs->qNote = "", gs->gFocusId = -1, render(false);
-      else if (id >= 0 && id < QUIZ_THEMES) quizAsk(QUIZ_THEME_NAMES[id], id);
+      else if (id >= 0 && id < QUIZ_THEMES) quizAsk(quizThemeName(id), id);
       else if (id == Q_OWN) gStartTyping(GAME_QUIZ);
       else if (id == Q_MIX) quizPlayOffline(-1);
       return;
@@ -1211,7 +1209,7 @@ static void actQuiz(int id) {
       if (id == ID_CANCEL || id == ID_BACK) {
         notesCancel();
         gs->gAiFor = AI_NONE;
-        gs->qNote = "Cancelled.";
+        gs->qNote = T(S_G_CANCELLED);
         gs->qScreen = QS_THEMES;
         gs->gFocusId = -1;
         render(false);
@@ -1236,7 +1234,7 @@ static void actQuiz(int id) {
 // ======================================================================== Adventure
 
 enum { AS_PICK, AS_PLAY };
-static const char *const WORLDS[] = {"Pirates", "Space", "Castle", "Jungle", "Ocean", "Mystery"};
+static const StrId WORLDS[] = {S_G_AW_PIRATES, S_G_AW_SPACE, S_G_AW_CASTLE, S_G_AW_JUNGLE, S_G_AW_OCEAN, S_G_AW_MYSTERY};
 static const char *const WORLD_PROMPTS[] = {
     "pirates: a friendly crew, a ship, islands and a treasure map", "space: a small rocket, planets, friendly aliens",
     "a castle: a kind dragon, a king and queen, a missing crown", "the jungle: animals, rivers and a hidden temple",
@@ -1296,8 +1294,8 @@ static void worldIcon(int i, int cx, int cy, int s) {
 
 static void drawAdvPick() {
   GameProgress &p = gameProgress();
-  gHeader("Adventure", p.stories ? String(p.stories) + (p.stories == 1 ? " story" : " stories") : String(""));
-  String note = gs->aNote.length() ? gs->aNote : gAiReady() || demoMode ? String("Pick a world: the AI tells a story where you choose what happens.") : gAiWhyNot();
+  gHeader(gameName(GAME_ADVENTURE), p.stories ? TP(S_G_STORIES, p.stories) : String(""));
+  String note = gs->aNote.length() ? gs->aNote : gAiReady() || demoMode ? String(T(S_G_A_PICK)) : gAiWhyNot();
   int y = gLeft(24, gTop() + 22, &FreeSans12pt7b, note, W - 48, 28, 3) + 2;
   int cols = TALL ? 2 : 4, gap = 14, rows = TALL ? 4 : 2;
   int tw = (W - 48 - (cols - 1) * gap) / cols, th = min(140, (H - 16 - y - (rows - 1) * gap) / rows);
@@ -1305,8 +1303,8 @@ static void drawAdvPick() {
   for (int i = 0; i < 8; i++) {
     int x = 24 + (i % cols) * (tw + gap), yy = y + (i / cols) * (th + gap);
     bool off = i < A_BUILTIN && !ai;
-    const char *label = i < 6 ? WORLDS[i] : i == A_OWN ? "Your own idea" : "Lighthouse Key";
-    int iconY = gChoiceTile(x, yy, tw, th, label, off ? "needs the AI" : nullptr, off, i == A_BUILTIN);
+    const char *label = T(i < 6 ? WORLDS[i] : i == A_OWN ? S_G_A_OWN : S_G_A_LIGHTHOUSE);
+    int iconY = gChoiceTile(x, yy, tw, th, label, off ? T(S_G_NEEDS_AI) : nullptr, off, i == A_BUILTIN);
     worldIcon(i, x + tw / 2, iconY, i == A_OWN ? 40 : 56);
     if (!off) gTarget(x, yy, tw, th, i);
   }
@@ -1314,7 +1312,7 @@ static void drawAdvPick() {
 }
 
 static void drawAdvPlay() {
-  gHeader(gs->aScene.title.length() ? gs->aScene.title : String("A new story"), TALL ? String("") : gs->aScene.ending ? String("The end") : "Scene " + String(gs->aNum));
+  gHeader(gs->aScene.title.length() ? gs->aScene.title : String(T(S_G_A_NEW_STORY)), TALL ? String("") : gs->aScene.ending ? String(T(S_G_A_THE_END)) : TF(S_G_A_SCENE, gs->aNum));
   // The text on the left in landscape, the choices beside it; stacked in portrait.
   int tx = 24, ty = gTop() + 26, tw = TALL ? W - 48 : W * 58 / 100 - 24;
   int cx = TALL ? 24 : W * 58 / 100 + 16, cw = TALL ? W - 48 : W - 24 - cx;
@@ -1346,22 +1344,22 @@ static void drawAdvPlay() {
     if (gs->aWaiting) {
       if (gs->aNum == 0) by = (TALL ? gTop() + 160 : gTop() + 100);  // nothing on screen yet: say so in the middle
       by = gCentred(cx + cw / 2, by + 20, gs->aNum ? &FreeSansBold12pt7b : &FreeSansBold18pt7b,
-                    gs->aNum ? "The story goes on..." : "Starting your story...", cw, 40, 2);
-      gButton(cx, bottom - 60, cw, 60, "Cancel", false, ID_CANCEL);
+                    T(gs->aNum ? S_G_A_GOES_ON : S_G_A_STARTING), cw, 40, 2);
+      gButton(cx, bottom - 60, cw, 60, T(S_G_CANCEL), false, ID_CANCEL);
     } else {
       gCentred(cx + cw / 2, by + 10, &FreeSans12pt7b, gs->aFailed, cw, 28, TALL ? 3 : 5);
       int bw = (cw - 14) / 2;
-      gButton(cx, bottom - 60, bw, 60, "Try again", true, ID_RETRY);
-      gButton(cx + bw + 14, bottom - 60, bw, 60, "Board's story", false, ID_OFFLINE);
+      gButton(cx, bottom - 60, bw, 60, T(S_G_TRY_AGAIN), true, ID_RETRY);
+      gButton(cx + bw + 14, bottom - 60, bw, 60, T(S_G_A_BOARDS_STORY), false, ID_OFFLINE);
     }
     return;
   }
   if (gs->aScene.ending) {
-    textCentre(cx + cw / 2, top + 50, &FreeSansBold24pt7b, "The end");
+    textCentre(cx + cw / 2, top + 50, &FreeSansBold24pt7b, fitted(&FreeSansBold24pt7b, T(S_G_A_THE_END), cw).c_str());
     for (int s = 0; s < 3; s++) gStar(cx + cw / 2 - 60 + s * 60, top + 100, 20, true);
     int bw = (cw - 14) / 2;
-    gButton(cx, bottom - 60, bw, 60, "New story", true, ID_AGAIN);
-    gButton(cx + bw + 14, bottom - 60, bw, 60, "Games", false, ID_GAMES);
+    gButton(cx, bottom - 60, bw, 60, T(S_G_A_NEW_STORY), true, ID_AGAIN);
+    gButton(cx + bw + 14, bottom - 60, bw, 60, T(S_G_GAMES), false, ID_GAMES);
     return;
   }
   int n = gs->aScene.choices.size(), gap = 14, bh = min(TALL ? 80 : 110, (bottom - top - (n - 1) * gap) / max(1, n));
@@ -1401,7 +1399,7 @@ static void advAsk() {
     gs->aFailed = gAiWhyNot();
     return render(false);
   }
-  if (!notesStartGame("adventure", ADV_INSTRUCTIONS, ADV_SCHEMA, advInput(gs->aWorld, gs->aStory, gs->aNum + 1), 30000, why)) {
+  if (!notesStartGame("adventure", advInstructions(), ADV_SCHEMA, advInput(gs->aWorld, gs->aStory, gs->aNum + 1), 30000, why)) {
     gs->aFailed = why;
     return render(false);
   }
@@ -1417,7 +1415,7 @@ static void advStart(const String &world) {
   gs->aStory.clear();
   gs->aNum = 0, gs->aChosen = -1, gs->aOffline = false;
   gs->aScene = AdvScene();
-  gs->aScene.title = "A new story";
+  gs->aScene.title = "";  // the screen says "A new story" until the first scene comes
   gs->aScene.text = "";
   gs->aScreen = AS_PLAY;
   gs->gFocusId = -1;
@@ -1435,7 +1433,7 @@ static void advArrived(const String &say, const String &raw) {
     Serial.printf("games: adventure failed: %s\n", why.c_str());
     if (gs->aNum == 0) {  // never began: back to the worlds, saying why
       gs->aScreen = AS_PICK;
-      gs->aNote = why + " Lighthouse Key plays without it.";
+      gs->aNote = TF(S_G_A_FAILED_NOTE, why.c_str());
       gs->aFailed = "";
     }
   } else {
@@ -1490,7 +1488,7 @@ static void actAdventure(int id) {
     notesCancel();
     gs->aWaiting = false, gs->gAiFor = AI_NONE;
     gs->aChosen = -1;
-    if (gs->aNum == 0) gs->aScreen = AS_PICK, gs->aNote = "Cancelled.";
+    if (gs->aNum == 0) gs->aScreen = AS_PICK, gs->aNote = T(S_G_CANCELLED);
     gs->gFocusId = -1;
     return render(false);
   }
@@ -1512,22 +1510,22 @@ static void xoNew() {
   gs->xoPlayerStarts = !gs->xoPlayerStarts;
   if (!gs->xoPlayerStarts) {
     gs->xoBoard[xoMove(gs->xoBoard, gameProgress().xoLevel)] = 'O';
-    gs->xoSay = "The board went first. Your turn.";
+    gs->xoSay = S_G_XO_BOARD_FIRST;
   } else {
-    gs->xoSay = "You're X. Tap a square.";
+    gs->xoSay = S_G_XO_START;
   }
   if (demoMode) {
     memcpy(gs->xoBoard, "XO  X  O ", 9);
-    gs->xoSay = "Your turn.";
+    gs->xoSay = S_G_XO_YOUR_TURN;
   }
 }
 
 static void xoEnd(char r) {
   GameProgress &p = gameProgress();
   gs->xoOver = true;
-  if (r == 'X') p.xoWins++, gs->xoSay = "You win!", beep(2400, 120);
-  else if (r == 'O') p.xoLosses++, gs->xoSay = "The board wins.", beep(800, 200);
-  else p.xoDraws++, gs->xoSay = "A draw.";
+  if (r == 'X') p.xoWins++, gs->xoSay = S_G_XO_WIN, beep(2400, 120);
+  else if (r == 'O') p.xoLosses++, gs->xoSay = S_G_XO_LOSE, beep(800, 200);
+  else p.xoDraws++, gs->xoSay = S_G_XO_DRAW;
   gamesChanged();
   gs->gFocusId = -1;
 }
@@ -1541,7 +1539,7 @@ static void drawXo() {
   GameProgress &p = gameProgress();
   int x0, y0, c;
   xoGeometry(x0, y0, c);
-  if (TALL) gHeader("X and O");
+  if (TALL) gHeader(gameName(GAME_XO));
   for (int i = 1; i < 3; i++) {
     canvas->fillRect(x0 + i * c - 3, y0 + 6, 6, 3 * c - 12, INK);
     canvas->fillRect(x0 + 6, y0 + i * c - 3, 3 * c - 12, 6, INK);
@@ -1559,23 +1557,21 @@ static void drawXo() {
   // Beside the board (below it in portrait): what's happening, the level, the tally, a new game.
   int px = TALL ? 24 : x0 + 3 * c + 30, pw = W - 24 - px, py = TALL ? y0 + 3 * c + 44 : BODY_Y + 52;
   if (!TALL) {
-    gButton(px, BODY_Y + 10, 116, 48, "Back", false, ID_BACK);
-    text(px + 134, BODY_Y + 45, &FreeSansBold18pt7b, "X and O");
+    gButton(px, BODY_Y + 10, 116, 48, T(S_G_BACK), false, ID_BACK);
+    text(px + 134, BODY_Y + 45, &FreeSansBold18pt7b, fitted(&FreeSansBold18pt7b, gameName(GAME_XO), pw - 134).c_str());
     py = BODY_Y + 106;
   }
-  textCentre(px + pw / 2, py, gs->xoOver ? &FreeSansBold18pt7b : &FreeSansBold12pt7b, gs->xoSay.c_str());
+  textCentre(px + pw / 2, py, gs->xoOver ? &FreeSansBold18pt7b : &FreeSansBold12pt7b, fitted(gs->xoOver ? &FreeSansBold18pt7b : &FreeSansBold12pt7b, T(gs->xoSay), pw).c_str());
   py += 26;
   int per = TALL ? 4 : 2, lw = (pw - (per - 1) * 10) / per;  // the levels: a row in portrait, two by two beside the board
   for (int l = 0; l < XO_LEVELS; l++) {
     int lx = px + (l % per) * (lw + 10), ly = py + (l / per) * 58;
-    pillButton(lx, ly, lw, 48, fitted(&FreeSansBold9pt7b, l == 3 ? "Best" : XO_LEVEL_NAMES[l], lw - 12).c_str(), l == p.xoLevel, &FreeSansBold9pt7b);
+    pillButton(lx, ly, lw, 48, fitted(&FreeSansBold9pt7b, xoLevelName(l), lw - 12).c_str(), l == p.xoLevel, &FreeSansBold9pt7b);
     gTarget(lx, ly, lw, 48, 10 + l);
   }
   py += (XO_LEVELS / per - 1) * 58 + 84;
-  char tally[64];
-  snprintf(tally, sizeof tally, "Won %d   Drawn %d   Lost %d", p.xoWins, p.xoDraws, p.xoLosses);
-  textCentre(px + pw / 2, py, &FreeSans12pt7b, tally);
-  gButton(px, TALL ? H - 80 : H - 80, pw, 60, "New game", gs->xoOver, ID_NEW);
+  textCentre(px + pw / 2, py, &FreeSans12pt7b, fitted(&FreeSans12pt7b, TF(S_G_XO_TALLY, p.xoWins, p.xoDraws, p.xoLosses), pw).c_str());
+  gButton(px, TALL ? H - 80 : H - 80, pw, 60, T(S_G_NEW_GAME), gs->xoOver, ID_NEW);
 }
 
 static void xoPlay(int i) {
@@ -1586,7 +1582,7 @@ static void xoPlay(int i) {
     int m = xoMove(gs->xoBoard, gameProgress().xoLevel);
     if (m >= 0) gs->xoBoard[m] = 'O';
     r = xoOutcome(gs->xoBoard, &gs->xoWin);
-    gs->xoSay = "Your turn.";
+    gs->xoSay = S_G_XO_YOUR_TURN;
   }
   if (r) xoEnd(r);
   else beep(2600, 15);
@@ -1614,13 +1610,13 @@ static String launcherLine(int g) {
   GameProgress &p = gameProgress();
   long today = gToday();
   switch (g) {
-    case GAME_2048: return gs->board2048Live && gs->board2048.score && !gs->board2048.over ? "Game on: " + String(gs->board2048.score) : p.best2048 ? "Best " + String(p.best2048) : String("Swipe to merge");
-    case GAME_MEMORY: return p.memBest[0] ? "Best " + String(p.memBest[0]) + " moves" : String("Find the pairs");
-    case GAME_MATHS: return "Level " + String(p.mathsUnlocked) + " of " + MATHS_LEVELS;
-    case GAME_DAILY: return gamesDailyDone(today) ? String("Done today") : gamesDailyStreak(today) ? String(gamesDailyStreak(today)) + " days in a row" : String("5 a day");
-    case GAME_QUIZ: return p.quizBest ? "Best " + String(p.quizBest) + " of 8" : String("8 questions");
-    case GAME_ADVENTURE: return gs->aScreen == AS_PLAY && !gs->aScene.ending && gs->aNum ? "Scene " + String(gs->aNum) + ": go on" : p.stories ? String(p.stories) + (p.stories == 1 ? " story" : " stories") : String("Choose your way");
-    case GAME_XO: return p.xoWins + p.xoDraws + p.xoLosses ? "Won " + String(p.xoWins) + ", drawn " + String(p.xoDraws) : String("Beat the board");
+    case GAME_2048: return gs->board2048Live && gs->board2048.score && !gs->board2048.over ? TF(S_G_L_GAME_ON, gs->board2048.score) : p.best2048 ? TF(S_G_L_BEST, p.best2048) : String(T(S_G_L_SWIPE));
+    case GAME_MEMORY: return p.memBest[0] ? TP(S_G_L_BEST_MOVES, p.memBest[0]) : String(T(S_G_L_PAIRS));
+    case GAME_MATHS: return TF(S_G_L_LEVEL, p.mathsUnlocked, MATHS_LEVELS);
+    case GAME_DAILY: return gamesDailyDone(today) ? String(T(S_G_L_DONE_TODAY)) : gamesDailyStreak(today) ? TP(S_G_DAYS_IN_ROW, gamesDailyStreak(today)) : String(T(S_G_L_FIVE_A_DAY));
+    case GAME_QUIZ: return p.quizBest ? TF(S_G_QUIZ_BEST, p.quizBest) : String(T(S_G_L_EIGHT_QUESTIONS));
+    case GAME_ADVENTURE: return gs->aScreen == AS_PLAY && !gs->aScene.ending && gs->aNum ? TF(S_G_L_SCENE_GO_ON, gs->aNum) : p.stories ? TP(S_G_STORIES, p.stories) : String(T(S_G_L_CHOOSE_WAY));
+    case GAME_XO: return p.xoWins + p.xoDraws + p.xoLosses ? TF(S_G_L_WON_DRAWN, p.xoWins, p.xoDraws) : String(T(S_G_L_BEAT_BOARD));
   }
   return "";
 }
@@ -1628,7 +1624,7 @@ static String launcherLine(int g) {
 static void drawLauncher() {
   auto games = gamesShownList();
   if (games.empty()) {
-    drawSetupCard("No games shown", {"Every game is hidden.", "", "Settings > Home screen shows them again."});
+    drawSetupCard(T(S_G_NO_GAMES), {T(S_G_NO_GAMES_1), "", T(S_G_NO_GAMES_2)});
     return;
   }
   int cols = TALL ? 3 : 4, cellW = (W - 32) / cols, cellH = TALL ? 196 : 186, top = BODY_Y + (TALL ? 30 : 22);
@@ -1639,8 +1635,8 @@ static void drawLauncher() {
     canvas->drawRoundRect(cx - TILE / 2, y, TILE, TILE, 22, INK);
     canvas->drawRoundRect(cx - TILE / 2 + 1, y + 1, TILE - 2, TILE - 2, 21, INK);
     gameIcon(g, cx, y + TILE / 2, 58);
-    const GFXfont *nf = textW(&FreeSansBold12pt7b, GAME_NAMES[g]) <= cellW - 8 ? &FreeSansBold12pt7b : &FreeSans12pt7b;  // "Maths Quest" in portrait
-    textCentre(cx, y + TILE + 30, nf, fitted(nf, GAME_NAMES[g], cellW - 8).c_str());
+    const GFXfont *nf = textW(&FreeSansBold12pt7b, gameName(g)) <= cellW - 8 ? &FreeSansBold12pt7b : &FreeSans12pt7b;  // "Maths Quest" in portrait
+    textCentre(cx, y + TILE + 30, nf, fitted(nf, gameName(g), cellW - 8).c_str());
     textCentre(cx, y + TILE + 54, &FreeSans9pt7b, fitted(&FreeSans9pt7b, launcherLine(g), cellW - 8).c_str());
     gTarget(cx - TILE / 2, y, TILE, TILE, g);
     gs->gHits.back() = {(int16_t)x, (int16_t)y, (int16_t)cellW, (int16_t)(cellH - 10), (int16_t)g};  // the label counts too
@@ -1671,7 +1667,7 @@ static void gameOpen(int g) {
 
 // ======================================================================== the app's entry points (sticky-os.ino)
 
-static const char *gamesBarTitle() { return gs->gGame < 0 ? "Games" : gs->gGame == GAME_MATHS && gs->mMode == MM_DAILY && gs->mScreen != MS_MAP ? GAME_NAMES[GAME_DAILY] : GAME_NAMES[gs->gGame]; }
+static const char *gamesBarTitle() { return gs->gGame < 0 ? T(S_G_GAMES) : gs->gGame == GAME_MATHS && gs->mMode == MM_DAILY && gs->mScreen != MS_MAP ? gameName(GAME_DAILY) : gameName(gs->gGame); }
 
 // Going home: the keyboard goes; a game stays as it was.
 static void gamesLeave() { gs->gTyping = false; }
@@ -1720,7 +1716,7 @@ static void gamesTypeResult(int r) {
   }
   if (r != KB_DONE) return;
   if (notesBusy()) {
-    noteKb.note = "Still busy with speech. A moment, then Done again.";
+    noteKb.note = T(S_G_KB_BUSY);
     return render(false);
   }
   String typed = noteKb.text;
@@ -1843,7 +1839,7 @@ static void gamesCommand(const String &arg) {
       if (gs->aFailed.length()) s += ", failed: " + gs->aFailed;
     } else if (gs->gGame == GAME_XO) {
       for (char c : gs->xoBoard) s += c == ' ' ? '.' : c;
-      s += " " + gs->xoSay;
+      s += String(" ") + i18nRaw(L_EN, gs->xoSay);
     } else {
       s += String("screen of ") + (gs->gGame < 0 ? "the launcher" : GAME_NAMES[gs->gGame]);
     }

@@ -528,6 +528,8 @@ function stripMeta(r) { const { id, ok, error, ...rest } = r || {}; return rest;
 // group (or a group of its own).
 
 export const GROUPS = [
+  { id: 'language', title: 'Language', prefixes: ['language'],
+    blurb: 'The language of the board’s screens, its dates and its keyboard. The AI answers in it too (notes, recipes, Quiz and Adventure). This page stays in English for now.' },
   { id: 'wifi', title: 'WiFi', prefixes: ['wifi'],
     blurb: 'The networks the board joins, tried from the top. Passwords can be written, never read back.' },
   { id: 'device', title: 'Device', prefixes: ['device'],
@@ -555,6 +557,7 @@ export const GROUPS = [
 // advanced: shown under a collapsed "Advanced" in its group.
 export const KEY_INFO = {
   'wifi.networks':     { label: 'Networks' },
+  'device.language':   { label: 'Language', type: 'lang', group: 'language', help: 'English, Spanish, Portuguese, French, German, Italian, Russian, Turkish, Polish or Romanian. Also in Settings → Language on the board.' },
   'device.name':       { label: 'Name', placeholder: 'e.g. Kitchen', help: 'Helps you tell boards apart.' },
   'device.timezone':   { label: 'Time zone', type: 'tz', help: 'The board gets the time from the internet. This sets the local time it shows.' },
   'weather.locate':    { label: 'Find my town automatically', help: 'Once after each start, the board asks ip-api.com which town its internet address is in. Off: it always uses the place below.' },
@@ -587,7 +590,19 @@ export const KEY_INFO = {
 };
 
 // What a first-time visitor needs, in order; shown on the overview.
-export const ESSENTIALS = ['wifi.networks', 'device.timezone', 'weather', 'openai.api_key'];
+export const ESSENTIALS = ['device.language', 'wifi.networks', 'device.timezone', 'weather', 'openai.api_key'];
+
+// device.language's choices, as each calls itself (the board's i18n.h LANGS).
+export const LANGUAGES = {
+  en: 'English', es: 'Español', pt: 'Português', fr: 'Français', de: 'Deutsch',
+  it: 'Italiano', ru: 'Русский', tr: 'Türkçe', pl: 'Polski', ro: 'Română',
+};
+export function languageName(code) { return LANGUAGES[code] || code; }
+// The browser's language, if the board has it: what the overview suggests.
+export function browserLanguage(list = globalThis.navigator?.languages || []) {
+  for (const l of list) { const c = String(l).toLowerCase().split('-')[0]; if (LANGUAGES[c]) return c; }
+  return 'en';
+}
 
 export function prefixOf(key) { return key.split('.')[0]; }
 
@@ -1425,6 +1440,13 @@ class App {
       h('span.step-text', h('b', title), h('span', state)),
       h('span.sr-only', done ? ' (done)' : optional ? ' (optional)' : ' (to do)'),
       icon('arrow', 'go'))));
+    const lk = this.key('device.language');
+    if (lk) {
+      const v = this.value('device.language') || 'en';
+      const chosen = isSet(lk) || this.edits.get(lk.key)?.kind === 'set';
+      const b = browserLanguage();
+      item('language', 'Language', chosen ? languageName(v) : `${languageName(v)} (the default)${b !== v ? `; your browser’s is ${languageName(b)}` : ''}`, chosen, true);
+    }
     if (this.key('wifi.networks')) {
       const n = (this.wifi || []).length;
       item('wifi', 'WiFi', n ? `${n} network${n > 1 ? 's' : ''} saved` : 'No network yet', n > 0);
@@ -1501,6 +1523,12 @@ class App {
       control = h('label.switch', h('input', { id, type: 'checkbox', role: 'switch', checked: v, 'aria-describedby': describedBy, onchange: (e) => this.stage(k, e.target.checked) }),
         h('span.track', { 'aria-hidden': 'true' }), h('span.switch-text', v ? 'On' : 'Off'));
     } else if (type === 'tz') control = this.tzControl(k, id, describedBy);
+    else if (type === 'lang') {
+      const cur = (edit?.kind === 'set' ? edit.value : k.value) || 'en';
+      const codes = Array.isArray(k.options) && k.options.length ? k.options : Object.keys(LANGUAGES);
+      control = h('select', { id, lang: cur, 'aria-describedby': describedBy, onchange: (e) => this.stage(k, e.target.value) },
+        ...codes.map((o) => h('option', { value: o, lang: o, selected: o === cur }, languageName(o))));
+    }
     else if (Array.isArray(k.options)) {
       const cur = edit?.kind === 'set' ? edit.value : k.value;
       control = h('select', { id, 'aria-describedby': describedBy, onchange: (e) => this.stage(k, e.target.value) },

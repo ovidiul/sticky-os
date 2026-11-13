@@ -6,6 +6,8 @@
 #include <memory>
 #include <new>
 #include "config.h"
+#include "glyphs.h"
+#include "i18n.h"
 #include "ics.h"
 #include "influx.h"
 #include "json.h"
@@ -49,14 +51,14 @@ static Source *sourceList() {  // in PSRAM, made the first time it's needed
 }
 
 void calSetText(char *dst, size_t cap, const String &s) {
-  String f = asciiFold(s);
+  String f = textFold(s);
   f.trim();
-  strlcpy(dst, f.c_str(), cap);
+  utf8Copy(dst, f.c_str(), cap);
 }
 
 static void foldText(const char *in, char *out, size_t cap) {
-  String f = asciiFold(String(in));
-  strlcpy(out, f.c_str(), cap);
+  String f = textFold(String(in));
+  utf8Copy(out, f.c_str(), cap);
 }
 
 static std::vector<IcsLink> links() { return cfg::icsLinks(cfg::str("calendar.ics")); }
@@ -119,7 +121,7 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
   long day = localDate(now);
   bool due = asked || !s.have || s.failed || millis() - s.okAt >= ICS_EVERY_MS || s.okDay != day;
   if (!due) return true;
-  String name = link.label.length() ? link.label + ": " : count > 1 ? "Calendar " + String(i + 1) + ": " : String();
+  String name = link.label.length() ? link.label + ": " : count > 1 ? TF(S_N_CAL_NUMBERED, i + 1) + ": " : String();
   auto fail = [&](const String &why) {
     s.failed = true;
     s.error = name + why;
@@ -145,7 +147,7 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
   for (int hop = 0; hop < 6; hop++) {
     String host = hostOf(url);
     bool https = url.startsWith("https://");
-    if (!https && !(ICS_HTTP && url.startsWith("http://"))) return fail("Calendar links must be https.");
+    if (!https && !(ICS_HTTP && url.startsWith("http://"))) return fail(T(S_N_CAL_HTTPS));
     WiFiClientSecure tls;
     WiFiClient plain;
     std::unique_ptr<NetTls> use;
@@ -159,7 +161,7 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
     http.setTimeout(15000);
     http.setConnectTimeout(NET_CONNECT_MS);
     http.setUserAgent(String("sticky-os/") + updVersion());
-    if (!http.begin(https ? (WiFiClient &)tls : plain, url)) return fail("That calendar link isn't a web address.");
+    if (!http.begin(https ? (WiFiClient &)tls : plain, url)) return fail(T(S_N_CAL_NOT_ADDRESS));
     // Unchanged since the last read (ETag / Last-Modified): the server says 304 and sends nothing.
     // Only for events expanded today: tomorrow the window has moved on.
     bool conditional = s.have && s.okDay == day && hop == 0;
@@ -172,7 +174,7 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
     if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
       String to = http.header("Location");
       http.end();
-      if (!to.length()) return fail("The calendar link goes nowhere.");
+      if (!to.length()) return fail(T(S_N_CAL_NOWHERE));
       url = to.startsWith("//") ? "https:" + to : to[0] == '/' ? origin(url) + to : to;
       Serial.printf("calendar: link %d redirected to %s\n", i + 1, hostOf(url).c_str());
       continue;
@@ -187,22 +189,19 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
     if (code != 200) {
       Serial.printf("calendar: link %d (%s) answered %d (%s)\n", i + 1, host.c_str(), code, code < 0 ? HTTPClient::errorToString(code).c_str() : "");
       http.end();
-      if (code == 404 || code == 410) return fail("Calendar link rejected (" + String(code) + ") - check the address.");
-      if (code == 401 || code == 403) return fail("Calendar link refused (" + String(code) + ") - it may have been reset.");
-      if (code == HTTPC_ERROR_READ_TIMEOUT) return fail(host + " didn't answer in time.");
-      if (code < 0) return fail("Couldn't reach " + host + ".");
-      if (code >= 500) return fail(host + " is down (error " + String(code) + "). Try later.");
-      return fail(host + " answered " + String(code) + ".");
+      if (code == 404 || code == 410) return fail(TF(S_N_CAL_REJECTED, code));
+      if (code == 401 || code == 403) return fail(TF(S_N_CAL_REFUSED, code));
+      return fail(netFailText(host.c_str(), code));
     }
     int size = http.getSize();
     if (size > (int)ICS_MAX_BYTES) {
       http.end();
-      return fail("Calendar feed too big (" + String(size / 1048576) + " MB, 8 MB at most).");
+      return fail(TF(S_N_CAL_TOO_BIG_MB, (int)(size / 1048576)));
     }
     void *mem = psMalloc(sizeof(ics::Parser));
     if (!mem) {
       http.end();
-      return fail("Not enough memory to read the calendar.");
+      return fail(T(S_N_CAL_NO_MEMORY));
     }
     std::unique_ptr<ics::Parser, ParserFree> p(new (mem) ics::Parser(o));
     FeedSink sink(*p);
@@ -211,15 +210,15 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
     http.end();
     use.reset();  // the TLS session is over: its RAM is back before the expansion
     s.bytes = sink.got;
-    if (sink.tooBig) return fail("Calendar feed too big (over 8 MB).");
-    if (sink.tooSlow) return fail("Calendar feed too slow to arrive (over 2 minutes).");
+    if (sink.tooBig) return fail(T(S_N_CAL_TOO_BIG));
+    if (sink.tooSlow) return fail(T(S_N_CAL_TOO_SLOW));
     if (n < 0) {
       Serial.printf("calendar: link %d (%s): the reply broke off after %u bytes (%s)\n", i + 1, host.c_str(), (unsigned)sink.got,
                     HTTPClient::errorToString(n).c_str());
-      return fail(n == HTTPC_ERROR_READ_TIMEOUT ? host + " stopped sending the calendar." : "The connection to " + host + " broke off.");
+      return fail(n == HTTPC_ERROR_READ_TIMEOUT ? TF(S_N_CAL_STOPPED, host.c_str()) : netFailText(host.c_str(), HTTPC_ERROR_CONNECTION_LOST));
     }
     p->finish();
-    if (!p->sawCalendar()) return fail("That link isn't a calendar (no iCal data).");
+    if (!p->sawCalendar()) return fail(T(S_N_CAL_NOT_ICAL));
     CalList fresh;
     fresh.reserve(p->events().size());
     for (const ics::Event &e : p->events()) {
@@ -247,7 +246,7 @@ static bool fetchLink(int i, int count, const IcsLink &link, bool asked, Source 
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return true;
   }
-  return fail("The calendar link redirects too often.");
+  return fail(T(S_N_CAL_REDIRECTS));
 }
 
 bool calendarFetch(bool asked, CalList &out, String &error, bool &any) {
@@ -293,7 +292,7 @@ bool calendarFetch(bool asked, CalList &out, String &error, bool &any) {
       if (!failing++) error = s.error;
     }
   }
-  if (failing > 1) error += " (and " + String(failing - 1) + " more)";
+  if (failing > 1) error += TF(S_N_CAL_MORE, failing - 1);
 
   // All of them as one list, by start; the same event in two calendars once.
   CalList merged;

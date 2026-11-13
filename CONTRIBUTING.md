@@ -35,7 +35,10 @@ without touching the board:
 | `update check`, `update install` | Settings → Software update: Check now, and Install |
 | `fsget <path>` | a LittleFS file as `FSGET <path> <bytes> <base64>` (up to 3 KB) |
 | `fsput <path> <base64>` | writes that file whole (`FSPUT <path> <bytes>`); restart afterwards |
-| `voice <seconds>` | a voice note of that length, without the button; prints `voice: <the answer>` when it's back |
+| `voice <seconds>` | a voice note of that length, without the button (the Listening card goes up first, then the seconds count); prints `voice: <the answer>` when it's back |
+| `note open <n>` | Notes, with the item on row n open full screen (0 the first, in the list's order: open tasks, notes, finished tasks) |
+| `note type <words>` | Notes: the words sent as a typed note, as the keyboard's Done does: the AI answers and the list changes (in demo mode nothing is saved). Handy for trying the AI in another language |
+| `note ai <lines>` | applies `<lines>` to the Notes list as if the AI had answered them, `\|` between lines, e.g. `note ai TASK: Buy eggs\|TASK: Buy bread\|DONE: 1\|SAY: Added eggs and bread.` (numbers count from 1 in the order the items were added, as the AI sees the list, not the order shown). The new items get their *NEW* pill; in demo mode nothing is saved. Prints `note: <the SAY line>` |
 | `fetch <n>` | fetch now for app n (1 Weather, 2 Calendar, 6 Claude), as OK in it does |
 | `cal` | the Calendar's sources: InfluxDB and each link (its label and host, never the address), how many events, the last read (status, bytes, time, ETag) and why it failed |
 | `wifi scan` | Settings → WiFi → Add network (the network task scans) |
@@ -49,6 +52,10 @@ without touching the board:
 | `game right`, `game wrong` | answer the question on screen right or wrong (Maths, Quiz); Memory: turn over a pair, or two that don't match |
 | `game type <words>` | Quiz or Adventure on screen: the words as if typed for *Your own theme* / *Your own idea* |
 | `game slide <0-3>`, `game pick <id>` | 2048: slide left, right, up, down; press what has that id (a card, an answer, a choice, a level, a square; 900 Back, 901 New game, 902 Again, 903 Games, 904 Next, 905 Cancel, 906 the built-in quiz or story, 907 Practice, 908 Play, 909 Try again) |
+| `lang <code>` | Settings → Language: `en`, `es`, `pt`, `fr`, `de`, `it`, `ru`, `tr`, `pl`, `ro` (kept, as the setting) |
+| `settings language` | Settings, on its Language page |
+| `keyboard`, `keyboard accents` | Notes' keyboard; `accents`: on its page of accented letters (in Russian: the Latin letters) |
+| `listen show`, `listen think`, `listen off` | the voice card on its own over the current screen, for screenshots: *Listening...* (the microphone), *Thinking...* (the speech bubble), or gone. Recording shows the first by itself; the board reads no serial while it records, so a `shot` waits for the end |
 | `airelay <host> <port>`, `airelay off` | until the next restart, the AI's requests (notes, recipes and the games) go to `https://host:port` without checking its certificate and without the OpenAI key: a fake server on a computer can answer (`/v1/audio/transcriptions` with `{"text":...}`, `/v1/responses` with an `output_text`; the request's `text.format.name` says what's wanted: `recipe`, `quiz` or `adventure`). Never saved |
 | `stats` | one line: uptime, reset reason, the longest the loop was held up since the last `stats`, the free stack of the loop, network and notes tasks, internal heap (free, lowest, largest block), PSRAM, TLS sessions open at once and the smallest largest-block seen as one opened |
 
@@ -66,8 +73,10 @@ keeps your own data out of it.
   questions, the built-in quiz and story, X and O's moves, the AI's
   quiz and scene JSON, the progress file) and `games.ino` how they look and
   take taps (a second tab of the sketch, so it shares the screen helpers);
-  `json.*` also
-  `asciiFold()`, for text the fonts can't draw (they are 7-bit); `calendar.*`
+  `json.*` JSON by key; `glyphs.*` UTF-8 and the letters beyond ASCII
+  (`textFold()` for text from outside, `foldCodePoint()` for what the fonts
+  can't draw); `i18n.*` and `src/i18n/` the languages (see
+  [Languages](#languages)); `calendar.*`
   the Calendar's sources merged (the links read and streamed into the
   parser, ETags, errors); `ics.*` the iCalendar parser and the expansion of
   repeating events and time zones (plain C++, tested on a computer:
@@ -104,6 +113,50 @@ A few habits that keep the board happy:
   network task answers under `dataLock` and raises `fetchDone`.
 - Respect the services: ZenQuotes allows 5 requests in 30 s, so the board
   asks at most every 7 s and falls back to its own list when told to wait.
+
+## Languages
+
+Every word on the screens is in `firmware/sticky-os/src/i18n/`:
+
+- `strings.h` (and `strings_games.h`, `strings_net.h`, included at its end):
+  one row a string, `S(S_SOME_ID, "English")`, with a comment saying where
+  it shows and how much room it has. The code shows it with `T(S_SOME_ID)`,
+  a format with `TF(S_SOME_ID, ...)`, a number and a noun with
+  `TP(S_SOME_ID, n)` (plural forms, `"%ld photo|%ld photos"`), a date with
+  `tStrftime()` / `tDate()` (never plain `strftime` with `%A %a %B %b`: those
+  are the board's own day and month names).
+- `es.h`, `pt.h`, ... one per language: `{S_SOME_ID, "translation"},` in
+  any order. An id a language hasn't got shows in English.
+
+**A new string:** add its row to `strings.h` (or the games / network file)
+in English, use it with `T()`, and add the translations you can; leave the
+others, they fall back to English. Keep the placeholders (`%s`, `%d`...) in
+the same order in every language; a list (`S_DAYS`) keeps its number of
+items; a plural string has the forms its language needs (`one|other`, or
+`one|few|many` in Russian, Polish and Romanian), each with `%ld`.
+
+**A new language:** add it to `Lang` in `i18n.h`, `LANGS` in `i18n_tables.cpp`
+(its code, its own name, its English name for the AI, the decimal comma and
+the plural rule), `LANGUAGE_CODES` in `config.h`, the keyboard's
+`KB_ACCENTS` in `sticky-os.ino`, `LANGUAGES` in `site/src/setup/app.js` and
+the mock's options, then copy `ro.h` to `<code>.h` and translate. Its letters
+must be ones the fonts have (see below).
+
+**Check:** `firmware/test/i18n/run.sh` checks every language file (unknown
+or doubled ids, placeholders, lists, plural forms, characters the fonts
+lack); `--widths` lists translations much wider than the English, to look
+at on the board (`lang <code>` on the serial port, then the screen).
+
+**Fonts:** the screens use Adafruit GFX's FreeSans, FreeSansBold and
+FreeSerifItalic, which hold ASCII only. `src/fonts/*ptExt.h` add 340 more
+characters to each size (Latin-1, Latin Extended-A, ș ț, Cyrillic, some
+punctuation), looked up by `glyphs.cpp`; the canvas in `sticky-os.ino`
+prints UTF-8 with both. They are generated from GNU FreeFont by
+`firmware/tools/fontext/make.sh` (FreeType, the same rendering as
+Adafruit's `fontconvert`); to add characters, add their code points there
+and run it. Scripts that need shaping or thousands of glyphs (Chinese,
+Japanese, Arabic, Hindi...) need a different text engine: see the pull
+request that added the languages.
 
 ## Licence
 

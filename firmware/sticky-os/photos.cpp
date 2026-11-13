@@ -9,6 +9,8 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 
+#include "glyphs.h"
+#include "i18n.h"
 #include "pins.h"
 #include "settings.h"
 
@@ -92,20 +94,20 @@ bool photoRender(int index, uint8_t *out, int w, int h, char *name, size_t nameS
                  const char **why) {
   static const char *none = "";
   if (!why) why = &none;
-  if (index < 0 || index >= (int)files.size()) return *why = "no such photo", false;
+  if (index < 0 || index >= (int)files.size()) return *why = T(S_N_PHOTO_NONE), false;
   const String &path = files[index];
-  strlcpy(name, path.c_str() + path.lastIndexOf('/') + 1, nameSize);
+  utf8Copy(name, path.c_str() + path.lastIndexOf('/') + 1, nameSize);
 
   Job job = {};
   job.file = fopen(path.c_str(), "rb");
-  if (!job.file) return *why = "can't open the file", false;
+  if (!job.file) return *why = T(S_N_PHOTO_CANT_OPEN), false;
 
   static uint8_t work[4096];  // the decoder's own workspace
   JDEC jd;
   JRESULT res = jd_prepare(&jd, readJpeg, work, sizeof work, &job);
   if (res != JDR_OK) {
     fclose(job.file);
-    return *why = res == JDR_FMT3 ? "progressive JPEG: save it as baseline" : "not a JPEG this board can read", false;
+    return *why = T(res == JDR_FMT3 ? S_N_PHOTO_PROGRESSIVE : S_N_PHOTO_NOT_JPEG), false;
   }
 
   // The decoder can shrink by 2, 4 or 8 as it goes: take the most that still
@@ -116,18 +118,18 @@ bool photoRender(int index, uint8_t *out, int w, int h, char *name, size_t nameS
   job.h = jd.height >> scale;
   if ((size_t)job.w * job.h > 6u * 1024 * 1024) {
     fclose(job.file);
-    return *why = "picture too large", false;
+    return *why = T(S_N_PHOTO_TOO_LARGE), false;
   }
   job.grey = (uint8_t *)heap_caps_malloc((size_t)job.w * job.h, MALLOC_CAP_SPIRAM);
   if (!job.grey) {
     fclose(job.file);
-    return *why = "out of memory", false;
+    return *why = T(S_N_PHOTO_NO_MEMORY), false;
   }
   res = jd_decomp(&jd, storeBlock, scale);
   fclose(job.file);
   if (res != JDR_OK) {
     heap_caps_free(job.grey);
-    return *why = "the JPEG data is damaged", false;
+    return *why = T(S_N_PHOTO_JPEG_DAMAGED), false;
   }
 
   // Source pixels per output pixel, in 16.16 fixed point. Landscape fills
@@ -144,7 +146,7 @@ bool photoRender(int index, uint8_t *out, int w, int h, char *name, size_t nameS
   int16_t *err = (int16_t *)calloc((w + 2) * 2, sizeof(int16_t));
   if (!err) {
     heap_caps_free(job.grey);
-    return *why = "out of memory", false;
+    return *why = T(S_N_PHOTO_NO_MEMORY), false;
   }
   int16_t *cur = err + 1, *next = err + w + 3;
   memset(out, 0xFF, (size_t)w * h / 4);

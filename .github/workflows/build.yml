@@ -21,6 +21,8 @@ jobs:
           arduino-cli lib install "Adafruit BusIO@1.17.4" "Adafruit GFX Library@1.12.6" "PubSubClient@2.8"
       - name: Calendar parser tests
         run: firmware/test/ics/run.sh
+      - name: Translations
+        run: firmware/test/i18n/run.sh
       - name: Build
         run: ./upload.sh build
       - name: Size

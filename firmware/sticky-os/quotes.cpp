@@ -4,6 +4,8 @@
 #include <LittleFS.h>
 #include <WiFiClientSecure.h>
 
+#include "glyphs.h"
+#include "i18n.h"
 #include "json.h"
 #include "net.h"
 
@@ -133,7 +135,7 @@ void quoteSaveCache(const Quote &q) {
 
 uint8_t fetchQuote(bool today, Quote &q, String &error) {
   error = "";
-  if (!netUp()) return error = "No WiFi.", QUOTE_FAILED;
+  if (!netUp()) return error = T(S_N_NO_WIFI), QUOTE_FAILED;
   NetTls use;
   WiFiClientSecure tls;
   netTrust(tls, false);  // the public CAs (zenquotes.io is on Let's Encrypt), and the 8 s handshake
@@ -142,7 +144,7 @@ uint8_t fetchQuote(bool today, Quote &q, String &error) {
   http.setTimeout(10000);
   http.setConnectTimeout(NET_CONNECT_MS);
   if (!http.begin(tls, today ? "https://zenquotes.io/api/today" : "https://zenquotes.io/api/random"))
-    return error = "Bad quote address.", QUOTE_FAILED;
+    return error = T(S_N_QUOTE_BAD_ADDRESS), QUOTE_FAILED;
   uint32_t start = millis();
   int status = http.GET();
   if (status == HTTPC_ERROR_CONNECTION_REFUSED && millis() - start >= NET_HANDSHAKE_S * 1000UL - 500) status = HTTPC_ERROR_READ_TIMEOUT;
@@ -154,16 +156,16 @@ uint8_t fetchQuote(bool today, Quote &q, String &error) {
   String a = jsonString(body, "a"), t = jsonString(body, "q");
   if (status == 429 || a == "zenquotes.io" || t.startsWith("Too many requests")) return QUOTE_LIMITED;
   if (status != 200 || !read) {
-    error = status == 200 ? String("ZenQuotes' reply came broken or too long.") : netFailText("ZenQuotes", status);
+    error = netFailText("ZenQuotes", status == 200 ? NET_ERR_BAD_BODY : status);
     return QUOTE_FAILED;
   }
-  t = asciiFold(t);
-  a = asciiFold(a);
+  t = textFold(t);
+  a = textFold(a);
   t.trim();
   a.trim();
-  if (!t.length() || t.length() > 600) return error = "ZenQuotes sent a reply it can't read.", QUOTE_FAILED;
+  if (!t.length() || t.length() > 600) return error = TF(S_N_FAIL_UNREADABLE, "ZenQuotes"), QUOTE_FAILED;
   q.text = t;
-  q.author = a.length() ? a : String("Unknown");
+  q.author = a.length() ? a : String(T(S_N_QUOTE_UNKNOWN));
   q.date = localDate(time(nullptr));
   q.from = today ? QUOTE_ZEN_TODAY : QUOTE_ZEN_RANDOM;
   return QUOTE_GOT;

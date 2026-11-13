@@ -77,9 +77,13 @@ static const int NET_HANDSHAKE_S = 8;
 static const int NET_CONNECT_MS = 5000;
 
 // An HTTP status (or a negative HTTPClient error) in plain words for the
-// screen: "Can't reach InfluxDB.", "InfluxDB rejected the token.", ...
-// `who` is the service, `secret` what it checks ("key", "token", "login").
+// screen, in the board's language: "Can't reach InfluxDB.", "InfluxDB
+// rejected the token.", ... `who` is the service as it reads mid-sentence
+// (T(S_N_SVC_WEATHER): "the weather service", or a name: "InfluxDB"); a
+// sentence that starts with it gets its first letter up. `secret` is what it
+// checks: "key", "token" or "login" (these three words, untranslated).
 String netFailText(const char *who, int code, const char *secret = "key");
+String capFirst(const String &s);  // the first letter in upper case: "the relay ..." -> "The relay ..."
 static const int NET_ERR_BAD_BODY = -200;  // for netFailText: the reply came broken, or too long
 
 // Reads an HTTP reply's body, `max` bytes at most (a reply that's longer

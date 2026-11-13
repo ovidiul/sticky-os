@@ -25,6 +25,8 @@
 const KEYS = [
   // wifi.networks is secret: "keys" lists its SSIDs (ssids), never a value.
   { key: 'wifi.networks', type: 'wifi_list', secret: true, max_items: 5 },
+  { key: 'device.language', type: 'string', secret: false, default: 'en', max_len: 5,
+    options: ['en', 'es', 'pt', 'fr', 'de', 'it', 'ru', 'tr', 'pl', 'ro'] },
   { key: 'device.name', type: 'string', secret: false, max_len: 24 },
   { key: 'device.timezone', type: 'string', secret: false, default: 'UTC0', max_len: 64 },
   { key: 'weather.locate', type: 'bool', secret: false, default: true },
@@ -359,6 +361,7 @@ export class MockDevice {
     }
     if (k.key === 'openai.api_key' && v && !v.startsWith('sk-')) throw new Error("that doesn't look like an OpenAI key (they start with sk-)");
     if (k.key === 'device.timezone' && !/^[<A-Za-z]/.test(v)) throw new Error('not a POSIX TZ string');
+    if (k.options && !k.options.includes(v)) throw new Error(`${k.key}: not a valid value`);
     if ((k.key === 'weather.lat' || k.key === 'weather.lon') && v && !/^-?\d{1,3}(\.\d+)?$/.test(v)) throw new Error(`${k.key}: a number like 38.72`);
     if (k.key === 'mqtt.ca' && v && !v.includes('-----BEGIN CERTIFICATE-----')) throw new Error('mqtt.ca: not a PEM certificate');
     return v;

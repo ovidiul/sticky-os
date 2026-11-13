@@ -5,7 +5,7 @@
 // The AI's reply is read defensively (recipeParse): code fences and words
 // around the JSON are cut away, the whole document must parse, the fields
 // may come in slightly wrong shapes (a number as text, an ingredient as a
-// plain string), and everything is capped and folded to ASCII for the fonts.
+// plain string), and everything is capped and folded to what the fonts draw (textFold).
 #pragma once
 #include <Arduino.h>
 #include <vector>
@@ -29,9 +29,10 @@ static const int RECIPE_MAX_SAVED = 30;
 static const int RECIPE_MAX_INGREDIENTS = 40, RECIPE_MAX_STEPS = 30, RECIPE_MAX_TIPS = 8;
 
 // The JSON schema the AI must answer in (OpenAI structured outputs), and
-// the instructions that go with it.
+// the instructions that go with it (built for each request: the recipe is
+// written in the board's language, the keys stay as in the schema).
 extern const char *const RECIPE_SCHEMA;
-extern const char *const RECIPE_INSTRUCTIONS;
+String recipeInstructions();
 
 // The AI's text (or a saved file) to a recipe. False, and `why` in plain
 // words for the screen, when it isn't one. A reply whose title is empty is
@@ -63,7 +64,7 @@ extern const char *const RECIPE_SAMPLE;
 int recipeSelfTest();
 
 // The parser's helpers, shared with the games (games.cpp), which read the
-// AI's JSON the same way. aiText: folded to ASCII, spaces run together, cut
+// AI's JSON the same way. aiText: folded for the fonts (textFold), spaces run together, cut
 // at a word (with "...") past `max`. aiJsonObject: the JSON object in an
 // AI's reply (code fences and words around it cut away, trailing commas
 // forgiven) into `doc`, which `root` then points into: 1 an object, 0 none
