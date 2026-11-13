@@ -1,0 +1,11 @@
+# Builds
+firmware/sticky-os/build/
+site/dist/
+node_modules/
+*.bin
+
+# Never public: credentials and the author's own seed values
+firmware/sticky-os/secrets.h
+firmware/sticky-os/private_seed.h
+
+.DS_Store

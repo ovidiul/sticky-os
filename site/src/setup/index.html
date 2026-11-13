@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-product="{{NAME}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Set up your board · {{NAME}}</title>
+<meta name="description" content="Set up a reTerminal Sticky running {{NAME}} from your browser, over a USB cable or Bluetooth. Nothing you type goes to a server.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ecede8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d1e20" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../site.css">
+<link rel="stylesheet" href="setup.css">
+<script type="module" src="app.js"></script>
+</head>
+<body class="setup-page">
+<a class="skip" href="#app">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><svg width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><rect x="1.5" y="1.5" width="15" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M5 7h8M5 11h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>{{NAME}}</a>
+    <span class="crumb">Setup</span>
+    <div class="conn" id="status" aria-live="polite"></div>
+  </div>
+</header>
+
+<main id="app" tabindex="-1">
+  <div class="wrap">
+    <div class="setup-intro">
+      <h1>Set up your board</h1>
+      <p class="lede">Connect the board to this page with a USB cable or over Bluetooth, then choose its WiFi, time zone and weather, and add your keys. What you type goes straight from this page to the board.</p>
+      <p class="preview"><span class="tag">Preview</span> This needs {{NAME}} firmware with setup support, which is coming soon. Until then, <a href="?demo">try the demo</a> with a simulated board.</p>
+    </div>
+    <div id="root">
+      <noscript><div class="card"><h2>This page needs JavaScript</h2><p>It talks to the board from your browser, over Web Serial or Web Bluetooth.</p></div></noscript>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><a class="brand" href="../">{{NAME}}</a></p>
+    <div>
+      <p>The setup app runs entirely in your browser. It has no server, sends nothing anywhere except to your board, and stores nothing, apart from the demo board’s settings in this browser.</p>
+      <p>An independent, open-source firmware for the Seeed reTerminal Sticky. Not made by or affiliated with Seeed Studio.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

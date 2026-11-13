@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}}: calm apps for the reTerminal Sticky e-paper board</title>
+<meta name="description" content="{{NAME}} is independent, open firmware for the Seeed reTerminal Sticky: a home screen of glanceable e-paper apps with touch, three buttons and voice notes. No account, no cloud required.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ecede8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d1e20" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#main"><svg width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><rect x="1.5" y="1.5" width="15" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M5 7h8M5 11h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>{{NAME}}</a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#tour">Tour</a></li>
+        <li><a href="#around">Getting around</a></li>
+        <li><a href="#apps">Apps</a></li>
+        <li><a href="#hardware">Hardware</a></li>
+        <li><a href="#privacy">Privacy</a></li>
+        <li><a href="#soon">Coming soon</a></li>
+        <li><a class="gh" href="https://github.com/ovidiul/sticky-os">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<div class="hero">
+  <div class="wrap">
+    <div>
+      <h1>A quiet home screen for the fridge door</h1>
+      <p class="lede">{{NAME}} is independent firmware for the Seeed reTerminal Sticky, the 3.97-inch magnetic e-paper board. It gives the board a home screen of apps you read in passing: the time, the weather, your next event, the shopping list.</p>
+      <p>E-paper keeps its picture without power, so the screen is always showing something useful and never asks for your attention.</p>
+      <div class="actions">
+        <a class="button" href="#tour">Take the tour</a>
+        <a href="https://github.com/ovidiul/sticky-os">Source on GitHub</a>
+      </div>
+      <p class="note">Runs on the board today. Open source under the MIT licence. <a href="setup/">Setup app (preview)</a>: needs firmware with setup support, coming soon.</p>
+    </div>
+    <figure class="device">
+      <div class="screen">
+        <img src="shots/home-landscape.png" width="800" height="480" fetchpriority="high"
+             alt="{{NAME}} on the board, held in landscape"
+             onerror="this.onerror=null;this.src='shots/timer-landscape.png'">
+      </div>
+    </figure>
+  </div>
+</div>
+
+<section id="why" aria-labelledby="why-h">
+  <div class="wrap split">
+    <h2 id="why-h">Why an e-paper board needs its own apps</h2>
+    <div>
+      <p class="intro">A phone wants your attention. A board on the fridge should do the opposite: tell you what you need as you walk past, then stay still.</p>
+      <p>E-paper is good at that. It reads like printed paper in daylight, it holds a picture with no power at all, and it redraws slowly. So every app here is made for a glance: large type, black and white, updated a few times an hour rather than sixty times a second.</p>
+      <p>You get around the way you would on a phone, with a home screen, icons and swipes. When your hands are full or wet, the three buttons on the top edge do the same things.</p>
+    </div>
+  </div>
+</section>
+
+<section id="tour" aria-labelledby="tour-h">
+  <div class="wrap">
+    <h2 id="tour-h">A tour of the board</h2>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>Home: the day at a glance</h3>
+        <p>The board starts on Home. A widget at the top shows the time and date, the weather outside and your next event; tap any part to open its app. Below it is an icon for every app.</p>
+        <ul>
+          <li>The icons are live. The clock’s hands show the time, the calendar shows today’s date, the weather icon shows the sky now, and Claude’s icon is a gauge of this week’s usage.</li>
+          <li>Badges count your open tasks and the minutes left on a timer.</li>
+          <li>When there are more apps than fit, swipe up for the next row. UP and DOWN move a ring from icon to icon, and OK opens it.</li>
+          <li>Choose which apps appear in Settings.</li>
+        </ul>
+      </div>
+      <div class="shots">
+        <figure class="device portrait">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Home, held upright</div>
+            <img src="shots/home-portrait.png" width="480" height="800" alt="Home held upright: the widget above a grid of three app icons across"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Upright: three icons across</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Home, landscape</div>
+            <img src="shots/home-landscape.png" width="800" height="480" alt="Home in landscape: the widget above two rows of four app icons"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Landscape: four across</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature flip">
+      <div class="copy">
+        <h3>Quick settings from the top edge</h3>
+        <p>Swipe down from the status bar on any screen. The tiles lock or free the rotation, turn sounds on or off, reconnect WiFi, clean the screen with a full refresh to clear ghosting, put the board to sleep, and open all settings. A filled tile is on.</p>
+        <p>The status bar itself shows the battery, WiFi strength, USB power, the microSD card and Bluetooth, which is not used yet. A running timer adds its minutes when there is room.</p>
+      </div>
+      <div class="shots">
+        <figure class="device portrait">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Quick settings</div>
+            <img src="shots/quick.png" width="480" height="800" alt="Quick settings: a row of tiles for rotation, sound, WiFi, clean screen, sleep and all settings"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Swipe down from the status bar</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>Calendar <span class="tag">New</span></h3>
+        <p>A calm agenda you can read from across the kitchen. A Now and Next card at the top counts down to what comes next. Below it, a strip of the week puts a dot on each busy day, and the coming events are listed under a heading for each day.</p>
+        <ul>
+          <li>Tap an event to see its details.</li>
+          <li>Add events from your phone as usual. The board shows them through a calendar feed you run.</li>
+        </ul>
+      </div>
+      <div class="shots">
+        <figure class="device portrait">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Calendar, Now and Next</div>
+            <img src="shots/calendar-day.png" width="480" height="800" alt="Calendar: a Now and Next card with a countdown, above the coming events"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Now and Next, with a countdown</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Calendar, the week</div>
+            <img src="shots/calendar-week.png" width="800" height="480" alt="Calendar: a strip of the week with dots on busy days, and the events under a heading for each day"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>The week at a glance</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature flip">
+      <div class="copy">
+        <h3>Notes and to-dos, spoken or typed</h3>
+        <p>In Notes, tap the microphone, say what you need, and tap it again. Or hold OK while you speak and let go. An AI model turns what you said into tasks and notes.</p>
+        <ul>
+          <li>Ask it to add, tick, untick or remove items, or ask a question about the list.</li>
+          <li>If the AI can’t be reached, your words are kept as a note, so nothing is lost.</li>
+          <li>Prefer typing? Notes has an on-screen keyboard.</li>
+          <li>Tap a box to tick a task. Tap its words to open it full screen, in type as large as fits.</li>
+        </ul>
+        <p>Voice is optional. It uses your own AI key or a relay you run.</p>
+      </div>
+      <div class="shots two-portrait">
+        <figure class="device portrait">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>Notes</div>
+            <img src="shots/notes.png" width="480" height="800" alt="Notes: a list of tasks with tick boxes and a microphone button"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Tasks with tick boxes</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <div class="slot"><strong>Screenshot coming</strong>On-screen keyboard</div>
+            <img src="shots/keyboard.png" width="480" height="800" alt="The on-screen keyboard, typing a new note"
+                 onload="this.previousElementSibling.remove()" onerror="this.remove()">
+          </div>
+          <figcaption>Or type it</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>A kitchen timer that can’t be missed</h3>
+        <p>Tap a length: 1, 3, 5, 10 or 25 minutes, or an hour. While it runs, the digits show the time left and when it will ring, with buttons for one more minute, five more, or Stop.</p>
+        <p>It rings even when button sounds are off, and opens itself when the time is up. Home shows the minutes left on its icon.</p>
+      </div>
+      <div class="shots">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/timer.png" width="480" height="800" alt="Timer held upright: 05:00 in large digits and buttons for 1, 3, 5, 10 and 25 minutes and 1 hour">
+          </div>
+          <figcaption>Pick a length</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/timer-landscape.png" width="800" height="480" alt="Timer in landscape: 10:00 left, rings at 20:30, with +1 min, +5 min and Stop">
+          </div>
+          <figcaption>Running, with the time it rings</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature flip">
+      <div class="copy">
+        <h3>Turn it any way</h3>
+        <p>The motion sensor knows how the board is held. Stick it on the fridge upright or lay it across a shelf, either way up, and the picture turns to match.</p>
+        <p>To keep it one way, lock the rotation from Quick settings or pick it in Settings.</p>
+      </div>
+      <div class="shots">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/rotation.png" width="480" height="800" alt="The screen rotation page: Automatic is chosen, with Landscape, Landscape flipped, Portrait and Portrait flipped below">
+          </div>
+          <figcaption>Automatic, or fixed four ways</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/settings-landscape.png" width="800" height="480" alt="Settings in landscape: Display with screen rotation and temperature, then Sound and power with a switch for button sounds">
+          </div>
+          <figcaption>The same settings, turned sideways</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>Settings that read like a phone’s</h3>
+        <p>Settings is a list under plain headings: Display, Sound and power, Connections, Apps and System. Each row has an icon, a title and a line saying what it is set to.</p>
+        <ul>
+          <li>Tap a switch to turn something on or off.</li>
+          <li>Tap a row with an arrow for a page of choices: rotation, temperature units, sleep on battery, and which apps Home shows.</li>
+          <li>Long lists turn like pages. Swipe up for the next, down to go back.</li>
+        </ul>
+      </div>
+      <div class="shots two-portrait">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/sleep.png" width="480" height="800" alt="Sleep on battery: Never is chosen, with after 5 minutes or after 30 minutes without a touch">
+          </div>
+          <figcaption>A page of choices</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/settings-system.png" width="480" height="800" alt="The last page of Settings: System, About this device">
+          </div>
+          <figcaption>Page 2 of 2</figcaption>
+        </figure>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section id="around" aria-labelledby="around-h">
+  <div class="wrap">
+    <div class="split">
+      <h2 id="around-h">Getting around</h2>
+      <p class="intro">Everything works by touch, and almost everything works with the three buttons too: OK on its own, and UP and DOWN beside it.</p>
+    </div>
+    <table class="ways">
+      <caption>Touch and buttons, side by side</caption>
+      <thead><tr><th scope="col">To do this</th><th scope="col">With touch</th><th scope="col">With the buttons</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Open an app</th><td data-l="Touch">Tap its icon on Home</td><td data-l="Buttons"><kbd>UP</kbd> <kbd>DOWN</kbd> move the ring, <kbd>OK</kbd> opens</td></tr>
+        <tr><th scope="row">Go home</th><td data-l="Touch">Tap the status bar, or swipe up from the bottom edge</td><td data-l="Buttons">Press <kbd>UP</kbd> and <kbd>DOWN</kbd> together</td></tr>
+        <tr><th scope="row">Quick settings</th><td data-l="Touch">Swipe down from the status bar</td><td data-l="Buttons"><kbd>OK</kbd> closes them</td></tr>
+        <tr><th scope="row">Next or previous app</th><td data-l="Touch">Swipe left or right</td><td data-l="Buttons"><kbd>UP</kbd> or <kbd>DOWN</kbd></td></tr>
+        <tr><th scope="row">The app’s action: refresh, next page, next photo</th><td data-l="Touch">Tap the screen or swipe up</td><td data-l="Buttons"><kbd>OK</kbd></td></tr>
+        <tr><th scope="row">Scroll Home</th><td data-l="Touch">Swipe up for more apps, down to go back</td><td data-l="Buttons">The ring scrolls as it moves</td></tr>
+        <tr><th scope="row">Voice note</th><td data-l="Touch">In Notes, tap the microphone, speak, tap again</td><td data-l="Buttons">Hold <kbd>OK</kbd>, speak, let go</td></tr>
+        <tr><th scope="row">Sleep</th><td data-l="Touch">Quick settings, then Sleep now</td><td data-l="Buttons">Hold <kbd>UP</kbd> and <kbd>DOWN</kbd> for 2 seconds; <kbd>OK</kbd> wakes it</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="apps" aria-labelledby="apps-h">
+  <div class="wrap">
+    <div class="split">
+      <h2 id="apps-h">Nine apps, all made for e-paper</h2>
+      <p class="intro">Each one shows a single thing clearly and redraws only when something changed.</p>
+    </div>
+    <ul class="apps">
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        <h3>Clock</h3><p>The time in large type, the date, and the room’s temperature and humidity from the built-in sensor.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.5"/><path d="M9 2.5v1.5M2.5 9H4M4.4 4.4l1 1M13.6 4.4l-1 1"/><path d="M8 20h9a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A2.8 2.8 0 0 0 8 20z"/></svg></span>
+        <h3>Weather</h3><p>Now and the next five days, from Open-Meteo. The board works out which town it is in by itself.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h3M8 17h6"/></svg></span>
+        <h3>Calendar <span class="tag">New</span></h3><p>Now and Next with a countdown, the week with its busy days marked, and an agenda by day.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="5" height="5" rx="1"/><path d="M4.8 7l1.2 1.3 2-2.6"/><rect x="3.5" y="14.5" width="5" height="5" rx="1"/><path d="M11.5 7h9M11.5 17h7"/></svg></span>
+        <h3>Notes</h3><p>Tasks and notes by voice or keyboard. Each item opens full screen.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/></svg></span>
+        <h3>Timer</h3><p>Countdowns from a minute to an hour, with the minutes left on its Home icon.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3.5 17l5.5-6 4 4.5 2.5-2.5 5 4.5"/><circle cx="16" cy="9" r="1.6"/></svg></span>
+        <h3>Photos</h3><p>Photos you send from the setup app, cropped and turned into four greys in your browser, and pictures from a microSD card. A new one every ten minutes.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 0 1 17 0"/><path d="M12 17l4.5-5.5"/><circle cx="12" cy="17" r="1.3"/></svg></span>
+        <h3>Claude Code usage</h3><p>This week’s usage as a gauge, read from an MQTT feed you publish.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.3"/><circle cx="15" cy="17" r="2.3"/></svg></span>
+        <h3>Settings</h3><p>Display, sound and power, connections, apps and system, with switches and pages of choices.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6"/></svg></span>
+        <h3>About</h3><p>Firmware, memory, battery, sensors, card and network, in large type.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="hardware" aria-labelledby="hw-h">
+  <div class="wrap split">
+    <div>
+      <h2 id="hw-h">Made for the reTerminal Sticky</h2>
+      <p class="intro" style="margin-top:1.5rem">{{NAME}} runs on Seeed’s reTerminal Sticky and uses nearly every part of it.</p>
+    </div>
+    <dl class="spec">
+      <dt>Screen</dt><dd>3.97-inch e-paper, 800 × 480, black and white with four greys for photos</dd>
+      <dt>Touch</dt><dd>Capacitive (GT911)</dd>
+      <dt>Buttons</dt><dd>Three on the top edge: OK, UP and DOWN. OK wakes the board from sleep</dd>
+      <dt>Chip</dt><dd>ESP32-S3 with 8 MB PSRAM and 32 MB flash, WiFi</dd>
+      <dt>Microphone</dt><dd>One PDM microphone, for voice notes</dd>
+      <dt>Sound</dt><dd>A buzzer for the timer and button clicks. There is no speaker</dd>
+      <dt>Sensors</dt><dd>Temperature and humidity, motion (for rotation), battery gauge</dd>
+      <dt>Storage</dt><dd>About 20 MB of the flash for notes and up to 100 photos; a microSD card slot for more photos</dd>
+      <dt>Power</dt><dd>750 mAh battery, USB-C for charging and flashing</dd>
+      <dt>Mounting</dt><dd>Magnetic back: the fridge door, a whiteboard, or flat on a desk</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="privacy" aria-labelledby="privacy-h">
+  <div class="wrap split">
+    <h2 id="privacy-h">Yours, not a service’s</h2>
+    <ul class="points">
+      <li><strong>No account, no cloud required</strong>There is nothing to sign up for and no company server in the middle. The board fetches the time and the weather directly, from public services that need no key.</li>
+      <li><strong>Plain about what leaves the board</strong>Once after each start it asks ip-api.com which town its internet address is in. Weather requests to Open-Meteo carry that town’s coordinates. That is all, unless you turn on the extras below.</li>
+      <li><strong>AI is optional and on your terms</strong>Voice notes go to an AI service with your own key, or through a relay you run. Without it, every other app works the same.</li>
+      <li><strong>Your lists stay on the board</strong>Notes, to-dos and your settings are kept in the board’s own flash.</li>
+      <li><strong>Telemetry only to your own broker</strong>Optional readings from the sensors and battery go to an MQTT broker you choose, and nowhere else.</li>
+      <li><strong>Open</strong>The whole firmware, this website and the setup app are <a href="https://github.com/ovidiul/sticky-os">on GitHub</a> under the MIT licence. The screen and touch drivers come from Seeed’s MIT-licensed examples.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="contribute" aria-labelledby="contribute-h">
+  <div class="wrap">
+    <div class="split">
+      <h2 id="contribute-h">Build it, change it, tell us</h2>
+      <p class="intro">Everything is on GitHub: the firmware, this website and the setup app. Found a bug, want an app, or fixed something? It all goes through the repository.</p>
+    </div>
+    <ul class="links">
+      <li><a href="https://github.com/ovidiul/sticky-os"><strong>Get the source</strong><span>Clone it, build it with the Arduino tools and flash your board over USB. The README walks through it.</span></a></li>
+      <li><a href="https://github.com/ovidiul/sticky-os/issues/new?template=bug.yml"><strong>Report a bug</strong><span>A short form: what happened, how to make it happen again, and your firmware version.</span></a></li>
+      <li><a href="https://github.com/ovidiul/sticky-os/issues/new?template=idea.yml"><strong>Suggest an idea or an app</strong><span>What you would see on the board, and when you would glance at it.</span></a></li>
+      <li><a href="https://github.com/ovidiul/sticky-os/blob/main/CONTRIBUTING.md"><strong>Send a change</strong><span>How the code is laid out, test commands that drive the board from your computer, and what a pull request needs.</span></a></li>
+    </ul>
+  </div>
+</section>
+
+<section id="soon" aria-labelledby="soon-h">
+  <div class="wrap">
+    <div class="split">
+      <h2 id="soon-h">Coming soon</h2>
+      <p class="intro">None of these is ready yet. Here is what they will do.</p>
+    </div>
+    <ul class="soon">
+      <li><h3>A setup app in your browser</h3><p>Plug the board in with a USB cable, or connect over Bluetooth, and set it up from a web page in Chrome or Edge. Later, set it up from any phone on a page the board serves from its own WiFi hotspot. Your WiFi and keys stay on the board, never built into the firmware.</p>
+        <p class="soon-link"><a href="setup/">Setup app (preview)</a>: needs firmware with setup support, coming soon. <a href="setup/?demo">Try the demo</a>.</p></li>
+      <li><h3>Quote of the Day</h3><p>A new quote every morning, as large as the screen allows, with a button for another one whenever you like.</p></li>
+      <li><h3>A game</h3><p>Something to play that suits e-paper: turn by turn, with no hurry.</p></li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="brand">{{NAME}}</span></p>
+    <div>
+      <p>An independent, open-source firmware for the Seeed reTerminal Sticky. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
+      <p>Every screenshot is the board’s own picture, captured as drawn.</p>
+      <p><a href="https://github.com/ovidiul/sticky-os">GitHub</a> · <a href="https://github.com/ovidiul/sticky-os/issues">Issues</a> · <a href="https://github.com/ovidiul/sticky-os/blob/main/LICENSE">MIT licence</a></p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

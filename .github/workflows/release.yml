@@ -1,0 +1,99 @@
+name: Release
+
+# Push a tag like v1.2.0: this builds that version and publishes it as a
+# GitHub Release, which the boards' Software update installs from. A tag
+# with a suffix (v1.2.0-rc1) becomes a pre-release, which boards never see
+# (they ask for releases/latest), and sorts before v1.2.0.
+# Release binaries are built here only: the git-ignored secrets.h and
+# private_seed.h don't exist in CI, so nothing private is compiled in.
+# The build job can only read the repository; the publish job, which only
+# uploads what the build made, is the one that can write.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Check the tag is a version
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "tag $GITHUB_REF_NAME is not vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE"; exit 1; }
+      - uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02 # v2.0.0
+      - name: Install the ESP32 core and libraries
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli lib install "Adafruit BusIO@1.17.4" "Adafruit GFX Library@1.12.6" "PubSubClient@2.8"
+      - name: Build
+        run: STICKY_VERSION="$GITHUB_REF_NAME" ./upload.sh build
+      - name: Make the release files
+        run: |
+          set -euo pipefail
+          B=firmware/sticky-os/build
+          mkdir -p dist
+          cp "$B/sticky-os.ino.bin" dist/sticky-os.bin
+          (cd dist && sha256sum sticky-os.bin > sticky-os.bin.sha256)
+          # Everything for a first flash, at the offsets of partitions.csv:
+          #   esptool --chip esp32s3 write_flash 0x0 sticky-os-full.bin
+          ESPTOOL=$(find ~/.arduino15/packages/esp32/tools/esptool_py -name esptool -type f | head -1)
+          "$ESPTOOL" --chip esp32s3 merge-bin -o dist/sticky-os-full.bin \
+            --flash-mode keep --flash-freq keep --flash-size keep \
+            0x0 "$B/sticky-os.ino.bootloader.bin" \
+            0x8000 "$B/sticky-os.ino.partitions.bin" \
+            0xe000 "$B/boot_app0.bin" \
+            0x10000 "$B/sticky-os.ino.bin"
+          (cd dist && sha256sum sticky-os-full.bin > sticky-os-full.bin.sha256)
+          ls -l dist
+      - name: Check the build has nothing private
+        run: |
+          # The owner's seed headers never exist here; if one ever did, stop.
+          ! [ -e firmware/sticky-os/private_seed.h ] && ! [ -e firmware/sticky-os/secrets.h ]
+          strings dist/sticky-os.bin | grep -q "^$GITHUB_REF_NAME$" || { echo "the version string isn't in the image"; exit 1; }
+          # No OpenAI-style API key in the image. (No PEM check: mbedtls carries
+          # the "BEGIN ... PRIVATE KEY" markers itself.)
+          if strings dist/sticky-os.bin | grep -Eq 'sk-[A-Za-z0-9_-]{20,}'; then echo "the image holds an API key"; exit 1; fi
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          # The notes: the annotated tag's message, or GitHub's generated ones.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            # subject and body, without a signature; the board shows the first lines
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/-----BEGIN PGP SIGNATURE-----/,$d; /-----BEGIN SSH SIGNATURE-----/,$d' > dist/notes.md
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -s dist/notes.md ]; then NOTES=(--notes-file dist/notes.md); else NOTES=(--generate-notes); fi
+          KIND=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then KIND=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Sticky OS $GITHUB_REF_NAME" \
+            "${NOTES[@]}" "${KIND[@]}" --verify-tag \
+            dist/sticky-os.bin dist/sticky-os.bin.sha256 dist/sticky-os-full.bin dist/sticky-os-full.bin.sha256

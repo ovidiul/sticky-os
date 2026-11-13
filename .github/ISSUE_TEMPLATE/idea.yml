@@ -1,0 +1,22 @@
+name: An idea or a new app
+description: Something the board could do, or do better.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would you see on the board, and when would you use it?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it suits e-paper
+      description: Optional. The screen redraws in about half a second and keeps its picture without power; glanceable, slow-changing things fit best.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Helping
+      options:
+        - label: I'd like to build this myself (we'll help you find your way around the code)

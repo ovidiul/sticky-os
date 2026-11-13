@@ -1,0 +1,49 @@
+name: Something isn't working
+description: A bug on the board, in the setup app or on the website.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please don't paste WiFi passwords, API keys or tokens:
+        the setup app never shows them, and logs from the board don't print them.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options: [On the board, Setup app, Website, Building or flashing]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      placeholder: "In Calendar, swiping up on the last page goes back to the first one. I expected it to stay."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: "1. Open Calendar  2. Swipe up four times  3. ..."
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Settings → About this device → Firmware (or the commit you built from).
+  - type: dropdown
+    id: orientation
+    attributes:
+      label: Held
+      options: [Portrait, Landscape, Both, Doesn't matter]
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log (optional)
+      description: 115200 baud. Paste the lines around the problem.
+      render: text
+  - type: textarea
+    id: shot
+    attributes:
+      label: Photo or screenshot (optional)
+      description: Drag an image here. The serial command `shot` prints the screen exactly as drawn.
