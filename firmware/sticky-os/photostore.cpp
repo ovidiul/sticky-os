@@ -6,6 +6,8 @@
 #include "esp_heap_caps.h"
 #include "mbedtls/base64.h"
 #include "mbedtls/sha256.h"
+#include "glyphs.h"
+#include "i18n.h"
 
 void logf(const char *fmt, ...);
 
@@ -92,6 +94,11 @@ static bool parseHead(const uint8_t *b, uint32_t size, Head &h, const char **why
   if (off != size) return *why = "the file's size doesn't match its header", false;
   memcpy(h.title, b + 44, 47);
   h.title[47] = 0;
+  // 48 bytes with no NUL: the 47 kept may end inside a character, which goes.
+  int n = strlen(h.title), last = utf8Back(h.title, n), want = 0;
+  uint8_t c = h.title[last];
+  if (n) want = c < 0x80 ? 1 : c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+  if (n - last < want) h.title[last] = 0;
   cleanTitle(h.title);
   return true;
 }
@@ -119,7 +126,7 @@ static void addEntry(const char *id, uint32_t bytes, const Head &h) {
   PhotoEntry &e = entries[count++];
   memset(&e, 0, sizeof e);
   strlcpy(e.id, id, sizeof e.id);
-  strlcpy(e.title, h.title, sizeof e.title);
+  utf8Copy(e.title, h.title, sizeof e.title);
   e.bytes = bytes, e.added = h.added;
   e.w = h.pic[0].w, e.h = h.pic[0].h, e.orient = h.pic[0].orient;
 }
@@ -193,11 +200,14 @@ void photoStoreTick() {
 bool photoStoreRender(int i, uint8_t *out, int w, int h, bool full, const char **why) {
   static const char *none = "";
   if (!why) why = &none;
-  if (i < 0 || i >= count) return *why = "no such photo", false;
+  if (i < 0 || i >= count) return *why = T(S_N_PHOTO_NONE), false;
   File f = LittleFS.open(pathOf(entries[i].id, ".stp"), "r");
-  if (!f) return *why = "the file is gone", false;
+  if (!f) return *why = T(S_N_PHOTO_GONE), false;
   Head hd;
-  if (!readHead(f, hd, why)) return false;
+  if (!readHead(f, hd, why)) {  // its why is the setup app's, in English: the screen gets one in its language
+    Serial.printf("photos: %s: %s\n", entries[i].id, *why);
+    return *why = T(S_N_PHOTO_DAMAGED), false;
+  }
   // The picture made for this orientation: full screen, the full-screen one
   // if there is one; else the photo itself, else its fitted copy (one of
   // them is this way up); a full-screen one held the other way never.
@@ -210,12 +220,12 @@ bool photoStoreRender(int i, uint8_t *out, int w, int h, bool full, const char *
   }
   const Pic &p = hd.pic[pick];
   uint8_t *px = (uint8_t *)heap_caps_malloc(p.len, MALLOC_CAP_SPIRAM);
-  if (!px) return *why = "out of memory", false;
+  if (!px) return *why = T(S_N_PHOTO_NO_MEMORY), false;
   bool read = f.seek(p.off) && f.read(px, p.len) == p.len;
   f.close();
   if (!read) {
     heap_caps_free(px);
-    return *why = "can't read the file", false;
+    return *why = T(S_N_PHOTO_CANT_READ), false;
   }
   memset(out, 0xFF, (size_t)w / 4 * h);  // white around it
   int stride = (p.w + 3) / 4, ox = (w - p.w) / 2, oy = (h - p.h) / 2;  // negative: cropped, centred

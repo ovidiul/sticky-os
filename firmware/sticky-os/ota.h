@@ -28,7 +28,7 @@ struct UpdInfo {
   String status;      // one line for the screen: "You're up to date", "v0.2.0 is available"...
   bool failed;        // the last check or install failed: status says why
   String latest;      // the newest release's tag, "" when none is known
-  String notes;       // its release notes, plain ASCII, a few lines at most
+  String notes;       // its release notes, as the fonts can draw them (textFold), a few lines at most
   bool available;     // it can be installed: newer than this build, or this is a dev build
   bool newer;         // newer by version number (what an automatic install needs)
   time_t checkedAt;   // the last check that got an answer, 0: none (or the time wasn't known)

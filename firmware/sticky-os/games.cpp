@@ -7,11 +7,14 @@
 
 #include "esp_heap_caps.h"
 
+#include "i18n.h"
 #include "json.h"
 #include "provjson.h"
 #include "recipes.h"  // aiText(), aiJsonObject()
 
 const char *const GAME_NAMES[GAME_COUNT] = {"2048", "Memory", "Maths Quest", "Daily maths", "Quiz", "Adventure", "X and O"};
+static const StrId GAME_STR[GAME_COUNT] = {S_G_2048, S_G_MEMORY, S_G_MATHS, S_G_DAILY, S_G_QUIZ, S_G_ADVENTURE, S_G_XO};
+const char *gameName(int g) { return g >= 0 && g < GAME_COUNT ? T(GAME_STR[g]) : ""; }
 
 // ---------------------------------------------------------------- random numbers
 
@@ -257,8 +260,9 @@ bool g2048Move(Board2048 &b, int dir) {
 // Ten levels, from adding within 100 to fractions and the order of
 // operations. A boss question is the level's kind with bigger numbers;
 // Champion mixes every kind, hard.
-const char *const MATHS_LEVEL_NAMES[MATHS_LEVELS] = {"Warm-up", "Easy tables", "All tables", "Division", "Big numbers",
-                                                     "Missing number", "Bigger times", "Order of operations", "Fractions", "Champion"};
+static const StrId LEVEL_STR[MATHS_LEVELS] = {S_G_ML_1, S_G_ML_2, S_G_ML_3, S_G_ML_4, S_G_ML_5,
+                                             S_G_ML_6, S_G_ML_7, S_G_ML_8, S_G_ML_9, S_G_ML_10};
+const char *mathsLevelName(int i) { return T(LEVEL_STR[constrain(i, 0, MATHS_LEVELS - 1)]); }
 enum MathKind { ADD100, TABLES_EASY, TABLES_ALL, DIVISION, ADD1000, MISSING, MUL2X1, ORDER_OPS, FRACTION, MIXED };
 
 // Three wrong options: the kind's typical slips first, then near misses,
@@ -276,6 +280,7 @@ static void finish(MathQ &q, std::initializer_list<int> traps) {
 }
 
 static String S(int n) { return String(n); }
+static String hintTimes(int a, int b) { return S(a) + " * " + S(b); }
 
 MathQ mathMake(int level, bool hard) {
   int kind = constrain(level, 1, MATHS_LEVELS) - 1;
@@ -290,13 +295,13 @@ MathQ mathMake(int level, bool hard) {
         int sum = gameRnd(big ? 200 : 20, top), a = gameRnd(big ? 100 : 5, sum - (big ? 50 : 5));
         q.text = S(a) + " + " + S(sum - a) + " = ?";
         q.answer = sum;
-        q.hint = big ? "Hundreds, tens, then ones" : "Tens first, then ones";
+        q.hint = T(big ? S_G_H_HUNDREDS : S_G_H_TENS);
         finish(q, {sum - 10, sum + 10, sum - 100});  // a lost or doubled carry
       } else {
         int a = gameRnd(big ? 200 : 20, top), b = gameRnd(big ? 50 : 5, a - (big ? 50 : 5));
         q.text = S(a) + " - " + S(b) + " = ?";
         q.answer = a - b;
-        q.hint = "Count up from " + S(b) + " to " + S(a);
+        q.hint = TF(S_G_H_COUNT_UP, b, a);
         finish(q, {a - b + 10, a - b - 10, a + b});
       }
       break;
@@ -308,10 +313,10 @@ MathQ mathMake(int level, bool hard) {
       int b = kind == TABLES_EASY ? gameRnd(2, hard ? 12 : 10) : gameRnd(hard ? 6 : 3, hard ? 12 : 9);
       q.answer = a * b;
       q.text = gameRnd(0, 1) ? S(a) + " * " + S(b) + " = ?" : S(b) + " * " + S(a) + " = ?";
-      if (a == 2) q.hint = "Double " + S(b);
-      else if (a == 10) q.hint = "Put a 0 after " + S(b);
-      else if (a == 5) q.hint = "Half of " + S(b) + " * 10";
-      else q.hint = S(a) + " * " + S(b) + " is " + S(a) + " * " + S(b - 1) + " + " + S(a);
+      if (a == 2) q.hint = TF(S_G_H_DOUBLE, b);
+      else if (a == 10) q.hint = TF(S_G_H_PUT_ZERO, b);
+      else if (a == 5) q.hint = TF(S_G_H_HALF_OF, hintTimes(b, 10).c_str());
+      else q.hint = TF(S_G_H_IS, hintTimes(a, b).c_str(), (hintTimes(a, b - 1) + " + " + S(a)).c_str());
       finish(q, {a * (b + 1), a * (b - 1), (a + 1) * b, a + b});
       break;
     }
@@ -319,7 +324,7 @@ MathQ mathMake(int level, bool hard) {
       int b = gameRnd(hard ? 6 : 2, hard ? 12 : 9), c = gameRnd(2, hard ? 12 : 10);
       q.text = S(b * c) + " % " + S(b) + " = ?";
       q.answer = c;
-      q.hint = S(b) + " * what makes " + S(b * c) + "?";
+      q.hint = TF(S_G_H_TIMES_WHAT, b, b * c);
       finish(q, {c + 1, c - 1, b, b * c - b});
       break;
     }
@@ -329,19 +334,19 @@ MathQ mathMake(int level, bool hard) {
         int a = gameRnd(2, hard ? 12 : 9), b = gameRnd(2, hard ? 12 : 9);
         q.text = "? * " + S(b) + " = " + S(a * b);
         q.answer = a;
-        q.hint = "Undo it: " + S(a * b) + " % " + S(b);
+        q.hint = TF(S_G_H_UNDO, (S(a * b) + " % " + S(b)).c_str());
         finish(q, {a * b - b, a + 1, a - 1, b});
       } else if (form == 1) {
         int a = gameRnd(10, hard ? 300 : 60), s = a + gameRnd(5, hard ? 300 : 40);
         q.text = S(a) + " + ? = " + S(s);
         q.answer = s - a;
-        q.hint = "Undo it: " + S(s) + " - " + S(a);
+        q.hint = TF(S_G_H_UNDO, (S(s) + " - " + S(a)).c_str());
         finish(q, {s + a, s - a + 10, s - a - 10});
       } else {
         int s = gameRnd(30, hard ? 500 : 100), d = gameRnd(5, s - 5);
         q.text = S(s) + " - ? = " + S(d);
         q.answer = s - d;
-        q.hint = "What takes " + S(s) + " down to " + S(d) + "?";
+        q.hint = TF(S_G_H_DOWN_TO, s, d);
         finish(q, {s + d, s - d + 10, d});
       }
       break;
@@ -351,7 +356,7 @@ MathQ mathMake(int level, bool hard) {
       if (a % 10 == 0) a++;
       q.text = S(a) + " * " + S(b) + " = ?";
       q.answer = a * b;
-      q.hint = S(a / 10 * 10) + " * " + S(b) + ", plus " + S(a % 10) + " * " + S(b);
+      q.hint = TF(S_G_H_PLUS, hintTimes(a / 10 * 10, b).c_str(), hintTimes(a % 10, b).c_str());
       finish(q, {a / 10 * 10 * b + a % 10, a * b - 10, a * b + 10, a * (b + 1)});
       break;
     }
@@ -361,24 +366,24 @@ MathQ mathMake(int level, bool hard) {
       if (form == 0) {
         q.text = S(a) + " + " + S(b) + " * " + S(c) + " = ?";
         q.answer = a + b * c;
-        q.hint = "Multiply first, then add";
+        q.hint = T(S_G_H_MUL_ADD);
         finish(q, {(a + b) * c});  // the left-to-right slip
       } else if (form == 1) {
         if (a * b <= c) a += c;
         q.text = S(a) + " * " + S(b) + " - " + S(c) + " = ?";
         q.answer = a * b - c;
-        q.hint = "Multiply, then subtract";
+        q.hint = T(S_G_H_MUL_SUB);
         finish(q, {a * (b - c) > 0 ? a * (b - c) : a * b + c});
       } else if (form == 2) {
         q.text = "(" + S(a) + " + " + S(b) + ") * " + S(c) + " = ?";
         q.answer = (a + b) * c;
-        q.hint = "Brackets first";
+        q.hint = T(S_G_H_BRACKETS);
         finish(q, {a + b * c});
       } else {
         int d = gameRnd(2, 9);
         q.text = S(a) + " * " + S(b) + " + " + S(c) + " * " + S(d) + " = ?";
         q.answer = a * b + c * d;
-        q.hint = "Both multiplications first";
+        q.hint = T(S_G_H_BOTH_MUL);
         finish(q, {(a * b + c) * d});
       }
       break;
@@ -387,9 +392,9 @@ MathQ mathMake(int level, bool hard) {
       static const int EASY[] = {2, 3, 4, 5, 10}, HARD[] = {3, 4, 5, 6, 8};
       int d = hard ? HARD[gameRnd(0, 4)] : EASY[gameRnd(0, 4)];
       int n = hard ? gameRnd(2, d - 1) : 1, k = gameRnd(2, 10), whole = d * k;
-      q.text = S(n) + "/" + S(d) + " of " + S(whole) + " = ?";
+      q.text = TF(S_G_M_FRACTION, n, d, whole);
       q.answer = n * k;
-      q.hint = n == 1 ? "Split " + S(whole) + " into " + S(d) + " equal parts" : "Find 1/" + S(d) + " first, then * " + S(n);
+      q.hint = n == 1 ? TF(S_G_H_SPLIT, whole, d) : TF(S_G_H_FIND_PART, d, n);
       finish(q, {k, whole / n, whole - n * k, n * d});
       break;
     }
@@ -424,7 +429,16 @@ void mathForget(const MathQ &q) {
 
 // ---------------------------------------------------------------- Quiz
 
-const char *const QUIZ_THEME_NAMES[QUIZ_THEMES] = {"Science", "Space", "Nature", "Geography", "History", "Words and numbers"};
+static const StrId THEME_STR[QUIZ_THEMES] = {S_G_QT_SCIENCE, S_G_QT_SPACE, S_G_QT_NATURE, S_G_QT_GEOGRAPHY, S_G_QT_HISTORY, S_G_QT_WORDS};
+const char *quizThemeName(int i) { return T(THEME_STR[constrain(i, 0, QUIZ_THEMES - 1)]); }
+
+// The AI's instructions stay in English; what the player reads is asked for
+// in the board's language.
+static String inLanguage() {
+  String lang = LANGS[i18nLang()].english;
+  return "Write everything the player reads (questions, options, facts, titles, scenes and choices) in " + lang +
+         ", with its proper letters and diacritics, whatever language the input is in; keep the JSON keys in English. ";
+}
 
 // The board's own questions, eight a theme: the question, the right
 // answer first and three wrong ones (shuffled when a round is dealt), and
@@ -511,14 +525,14 @@ const char *const QUIZ_SCHEMA =
     "\"options\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"answer\":{\"type\":\"integer\"},"
     "\"fact\":{\"type\":\"string\"}}}}}}";
 
-const char *const QUIZ_INSTRUCTIONS =
-    "You write multiple-choice quizzes for a family, played on a small e-paper screen. Write 8 questions on the theme "
+String quizInstructions() {
+  return "You write multiple-choice quizzes for a family, played on a small e-paper screen. Write 8 questions on the theme "
     "you are given: easy to medium, varied, and accurate (only facts you are sure of; nothing that is disputed or "
     "changes often). Each question at most 90 characters. Exactly 4 options, each at most 22 characters, one of them "
     "right; answer is the number (0 to 3) of the right option, and put it in different places. fact: one surprising, "
-    "true sentence about the answer, at most 100 characters, shown after answering. Plain ASCII text, no emoji. Write "
-    "in the language the theme is written in. If the theme isn't suitable for a family quiz, make a general knowledge "
-    "quiz instead.";
+    "true sentence about the answer, at most 100 characters, shown after answering. No emoji. " +
+         inLanguage() + "If the theme isn't suitable for a family quiz, make a general knowledge quiz instead.";
+}
 
 String quizInput(const String &theme) {
   static const char *const ANGLES[] = {"surprising records", "how things work", "history and firsts", "everyday life",
@@ -531,26 +545,26 @@ bool quizParse(const String &raw, std::vector<QuizQ> &out, String &why) {
   String doc;
   pj::Val root, list, e, v, o;
   int found = aiJsonObject(raw, doc, root);
-  if (found <= 0) return why = found < 0 ? "The AI's quiz came back garbled." : "The AI's answer wasn't a quiz.", false;
-  if (!pj::member(root, "questions", list) || list.type != pj::ARR) return why = "The AI's answer had no questions.", false;
+  if (found <= 0) return why = T(found < 0 ? S_G_Q_GARBLED : S_G_Q_NOT_QUIZ), false;
+  if (!pj::member(root, "questions", list) || list.type != pj::ARR) return why = T(S_G_Q_NO_QUESTIONS), false;
   for (size_t i = 0; pj::at(list, i, e) && out.size() < 12; i++) {
     if (e.type != pj::OBJ) continue;
     QuizQ q;
     String s;
     long n = -1;
-    if (pj::member(e, "q", v) && pj::str(v, s)) q.q = aiText(s, 140);
-    if (pj::member(e, "fact", v) && pj::str(v, s)) q.fact = aiText(s, 160);
+    if (pj::member(e, "q", v) && pj::str(v, s)) q.q = aiText(s, 280);
+    if (pj::member(e, "fact", v) && pj::str(v, s)) q.fact = aiText(s, 320);
     if (pj::member(e, "answer", v)) {
       if (!pj::num(v, n) && pj::str(v, s)) n = s.toInt();
     }
     int k = 0;
     if (pj::member(e, "options", v) && v.type == pj::ARR)
       for (size_t j = 0; pj::at(v, j, o) && k < 4; j++)
-        if (pj::str(o, s) && (s = aiText(s, 40)).length()) q.options[k++] = s;
+        if (pj::str(o, s) && (s = aiText(s, 80)).length()) q.options[k++] = s;
     q.answer = n;
     if (q.q.length() && k == 4 && n >= 0 && n < 4) out.push_back(q);  // a question with less is left out
   }
-  if (out.size() < 3) return why = "The AI's quiz came back with too few good questions.", false;
+  if (out.size() < 3) return why = T(S_G_Q_TOO_FEW), false;
   return true;
 }
 
@@ -561,16 +575,17 @@ const char *const ADV_SCHEMA =
     "\"properties\":{\"title\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},"
     "\"choices\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"ending\":{\"type\":\"boolean\"}}}";
 
-const char *const ADV_INSTRUCTIONS =
-    "You run an interactive adventure story on a small e-paper screen, one scene per turn, for anyone from about seven "
+String advInstructions() {
+  return "You run an interactive adventure story on a small e-paper screen, one scene per turn, for anyone from about seven "
     "years old up. The reader is the hero (\"you\"). The input names the world, the scene number and the story so far: "
     "each scene, and the choice the reader made after it. Write the next scene. title: two to five words. text: two to "
     "four short, vivid sentences, at most 380 characters, that follow on from the choice just made and keep the names, "
     "places and things already in the story. choices: two or three short things the reader can do next, each at most "
     "32 characters, that really lead different ways. Build towards a happy ending; when the input says it is time, end "
     "the story in this scene: ending true and no choices. Friendly and gentle: no real danger, nobody hurt, nothing "
-    "scary. Never ask the reader anything personal. Plain ASCII text, no emoji. Write in the language the world is "
-    "written in. If the world isn't suitable, tell a gentle story about a lost map instead.";
+    "scary. Never ask the reader anything personal. No emoji. " +
+         inLanguage() + "If the world isn't suitable, tell a gentle story about a lost map instead.";
+}
 
 String advInput(const String &world, const std::vector<String> &story, int sceneNumber) {
   String in = "World: " + world + "\nScene " + String(sceneNumber) + " of about " + String(ADV_SCENES) + ".";
@@ -586,17 +601,17 @@ bool advParse(const String &raw, AdvScene &out, String &why) {
   String doc, s;
   pj::Val root, v, e;
   int found = aiJsonObject(raw, doc, root);
-  if (found <= 0) return why = found < 0 ? "The story came back garbled." : "The AI's answer wasn't a story.", false;
-  if (pj::member(root, "title", v) && pj::str(v, s)) out.title = aiText(s, 40);
-  if (pj::member(root, "text", v) && pj::str(v, s)) out.text = aiText(s, 520);
+  if (found <= 0) return why = T(found < 0 ? S_G_A_GARBLED : S_G_A_NOT_STORY), false;
+  if (pj::member(root, "title", v) && pj::str(v, s)) out.title = aiText(s, 80);
+  if (pj::member(root, "text", v) && pj::str(v, s)) out.text = aiText(s, 1040);
   bool ending = false;
   if (pj::member(root, "ending", v)) pj::boolean(v, ending);
   if (pj::member(root, "choices", v) && v.type == pj::ARR)
     for (size_t i = 0; pj::at(v, i, e) && out.choices.size() < 3; i++)
-      if (pj::str(e, s) && (s = aiText(s, 48)).length()) out.choices.push_back(s);
+      if (pj::str(e, s) && (s = aiText(s, 96)).length()) out.choices.push_back(s);
   out.ending = ending || out.choices.empty();
   if (out.ending) out.choices.clear();
-  if (!out.text.length()) return why = "The story came back empty.", false;
+  if (!out.text.length()) return why = T(S_G_A_EMPTY), false;
   return true;
 }
 
@@ -645,7 +660,8 @@ bool advBuiltIn(int n, AdvScene &out) {
 
 // ---------------------------------------------------------------- X and O
 
-const char *const XO_LEVEL_NAMES[XO_LEVELS] = {"Easy", "Medium", "Hard", "Unbeatable"};
+static const StrId XO_STR[XO_LEVELS] = {S_G_XO_EASY, S_G_XO_MEDIUM, S_G_XO_HARD, S_G_XO_BEST};
+const char *xoLevelName(int l) { return T(XO_STR[constrain(l, 0, XO_LEVELS - 1)]); }
 static const int8_t LINES[8][3] = {{0, 1, 2}, {3, 4, 5}, {6, 7, 8}, {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, {0, 4, 8}, {2, 4, 6}};
 int xoLine(int line, int k) { return LINES[line & 7][k % 3]; }
 

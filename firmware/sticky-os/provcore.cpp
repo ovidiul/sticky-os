@@ -82,6 +82,11 @@ static String keysJson() {
       for (size_t j = 0; j < ssids.size(); j++) s += (j ? "," : "") + pj::esc(ssids[j]);
       s += "]";
     }
+    if (k.check == CHK_LANG) {  // the choices, in the board's order
+      s += ",\"options\":[";
+      for (int j = 0; j < LANGUAGE_COUNT; j++) s += String(j ? "," : "") + "\"" + LANGUAGE_CODES[j] + "\"";
+      s += "]";
+    }
     if (k.check == CHK_ICS) {  // the links are secret; how many there are and their labels aren't
       s += String(",\"max_items\":") + cfg::MAX_ICS + ",\"labels\":[";
       std::vector<String> labels = cfg::stagedIcsLabels();

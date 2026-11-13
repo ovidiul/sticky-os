@@ -15,7 +15,8 @@
 #include <vector>
 
 enum GameId : uint8_t { GAME_2048, GAME_MEMORY, GAME_MATHS, GAME_DAILY, GAME_QUIZ, GAME_ADVENTURE, GAME_XO, GAME_COUNT };
-extern const char *const GAME_NAMES[GAME_COUNT];
+extern const char *const GAME_NAMES[GAME_COUNT];  // English, for the serial port's lines
+const char *gameName(int g);  // in the board's language, for the screen
 
 // A small random number generator of our own, so the daily challenge can
 // be the same set all day: gameSeed(n) repeats a sequence, gameSeed(0)
@@ -68,7 +69,7 @@ struct MathQ {
   int answer;
   int options[4];
 };
-extern const char *const MATHS_LEVEL_NAMES[MATHS_LEVELS];
+const char *mathsLevelName(int i);  // 0..MATHS_LEVELS-1, in the board's language
 static const int MATHS_QUESTIONS = 8;  // a level: 8, then the boss
 static const int DAILY_QUESTIONS = 5;
 MathQ mathMake(int level, bool hard);  // level 1..10; hard: the boss
@@ -85,15 +86,15 @@ struct QuizQ {
   int answer;
 };
 static const int QUIZ_THEMES = 6, QUIZ_LENGTH = 8;
-extern const char *const QUIZ_THEME_NAMES[QUIZ_THEMES];
+const char *quizThemeName(int i);  // 0..QUIZ_THEMES-1, in the board's language
 // A round of the board's own questions on that theme (-1: a mix), the options shuffled.
 std::vector<QuizQ> quizBuiltIn(int theme, int count);
 int quizBuiltInCount();
 // What the AI is asked: a quiz of QUIZ_LENGTH questions on the theme.
 extern const char *const QUIZ_SCHEMA;
-extern const char *const QUIZ_INSTRUCTIONS;
+String quizInstructions();  // in English, asking for the quiz in the board's language
 String quizInput(const String &theme);
-// The AI's reply to questions; false and `why` (plain words) when there's no quiz in it.
+// The AI's reply to questions; false and `why` (plain words, in the board's language) when there's no quiz in it.
 bool quizParse(const String &raw, std::vector<QuizQ> &out, String &why);
 
 // ---------------------------------------------------------------- Adventure
@@ -106,7 +107,7 @@ struct AdvScene {
 };
 static const int ADV_SCENES = 8;  // an AI story ends at about this many
 extern const char *const ADV_SCHEMA;
-extern const char *const ADV_INSTRUCTIONS;
+String advInstructions();  // in English, asking for the story in the board's language
 // The next scene's request: the world, and the story so far (each scene's
 // text and the choice made after it).
 String advInput(const String &world, const std::vector<String> &story, int sceneNumber);
@@ -117,7 +118,7 @@ bool advBuiltIn(int n, AdvScene &out);
 // ---------------------------------------------------------------- X and O
 
 static const int XO_LEVELS = 4;
-extern const char *const XO_LEVEL_NAMES[XO_LEVELS];
+const char *xoLevelName(int l);  // a level's button, in the board's language
 // 'X' or 'O' with three in a row (`line` gets which: 0..7, rows, columns,
 // diagonals), 'D' a full board, 0 still open. The player is X.
 char xoOutcome(const char b[9], int *line = nullptr);

@@ -33,7 +33,13 @@ enum CfgCheck : uint8_t {
   CHK_TOPIC,   // an MQTT topic prefix: letters, digits, - _ . and /, no wildcards
   CHK_PEM,     // -----BEGIN CERTIFICATE----- ... (ASCII, newlines allowed)
   CHK_ICS,     // calendar links: up to 3 lines, "[label ]https://..." (webcal:// is taken as https://)
+  CHK_LANG,    // one of LANGUAGE_CODES: the board's language (i18n.h)
 };
+
+// The languages device.language takes (i18n.h's LANGS, in the same order;
+// the setup app lists them as the key's "options").
+static const char *const LANGUAGE_CODES[] = {"en", "es", "pt", "fr", "de", "it", "ru", "tr", "pl", "ro"};
+static const int LANGUAGE_COUNT = sizeof(LANGUAGE_CODES) / sizeof(LANGUAGE_CODES[0]);
 
 struct CfgKey {
   const char *name;   // protocol name, "mqtt.host"

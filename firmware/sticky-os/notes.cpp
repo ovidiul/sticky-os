@@ -10,6 +10,8 @@
 #include "freertos/idf_additions.h"
 
 #include "config.h"
+#include "glyphs.h"
+#include "i18n.h"
 #include "json.h"
 #include "net.h"
 #include "pins.h"
@@ -35,6 +37,7 @@ static const char *FILE_PATH = "/notes.txt";
 static std::vector<NoteItem> items;
 static bool storage;
 static uint32_t listGen;  // bumps on every change: an AI answer about an older list mustn't renumber it
+static bool demoActive;   // demo mode: the made-up list lives in RAM only, never written to the flash
 
 std::vector<NoteItem> &notesItems() { return items; }
 
@@ -42,19 +45,17 @@ void notesDemo(bool on) {
   static std::vector<NoteItem> real;
   static bool active;
   if (on == active) return;
-  active = on;
+  active = demoActive = on;
   if (!on) {
     items = real;
     return;
   }
   real = items;
   uint32_t t = time(nullptr);
-  items = {{true, false, "Buy oat milk and coffee beans", t - 3600},
-           {true, false, "Book the car service for next week", t - 7200},
-           {true, false, "Call the plumber about the kitchen tap", t - 9000},
-           {false, false, "Gift idea: a pasta maker for Sam's birthday, the one with the drying rack", t - 86400},
-           {false, false, "Wifi for guests is on the fridge door", t - 172800},
-           {true, true, "Water the plants", t - 200000},
+  items = {{true, false, "Buy oat milk", t - 3600},
+           {true, false, "Book the car service", t - 7200},
+           {true, false, "Water the plants", t - 9000},
+           {false, false, "Guest WiFi is on the fridge door", t - 86400},
            {true, true, "Pay the electricity bill", t - 260000}};
 }
 
@@ -62,7 +63,7 @@ void notesDemo(bool on) {
 // "N0 ..." (note). Older lines have no "@time".
 static void save() {
   listGen++;
-  if (!storage) return;
+  if (!storage || demoActive) return;  // demo: the owner's saved list stays as it was
   // A new file, then renamed over the old one: a full flash keeps the old list.
   static const char *TMP = "/notes.tmp";
   File f = LittleFS.open(TMP, "w");
@@ -121,9 +122,20 @@ void notesDelete(int index) {
 }
 
 
+static uint32_t markedAt;
+bool notesMarked() {
+  for (const NoteItem &i : items)
+    if (i.mark) return true;
+  return false;
+}
+uint32_t notesMarkedAt() { return markedAt; }
+void notesClearMarks() {
+  for (NoteItem &i : items) i.mark = 0;
+}
+
 static void add(bool task, String text) {
+  text = textFold(text);  // as the fonts can draw it: emoji and the like folded or dropped, new lines to spaces
   text.trim();
-  text.replace("\n", " ");
   if (!text.length()) return;
   if (items.size() >= MAX_ITEMS) {  // full: the oldest finished task goes, else the oldest item
     size_t drop = 0;
@@ -132,7 +144,8 @@ static void add(bool task, String text) {
     items.erase(items.begin() + drop);
   }
   time_t now = time(nullptr);
-  items.push_back({task, false, text, now > 1700000000 ? (uint32_t)now : 0});
+  items.push_back({task, false, text, now > 1700000000 ? (uint32_t)now : 0, NOTE_NEW});
+  markedAt = millis();
 }
 
 // ---------------------------------------------------------------- microphone
@@ -154,7 +167,7 @@ size_t micRecord(bool (*keepGoing)(), int16_t **pcm) {
   if (!i2s.begin(I2S_MODE_PDM_RX, RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO)) {
     Serial.println("mic: the PDM input didn't start");
     digitalWrite(PIN_MIC_EN, LOW);
-    micWhy = "The microphone didn't start.";
+    micWhy = T(S_N_MIC_NOT_STARTED);
     return 0;
   }
   const size_t maxSamples = (size_t)RATE * NOTES_MAX_SECONDS;
@@ -171,7 +184,7 @@ size_t micRecord(bool (*keepGoing)(), int16_t **pcm) {
   digitalWrite(PIN_MIC_EN, LOW);
   if (!buf || !n) {
     if (!buf) Serial.println("mic: no PSRAM for the recording");
-    micWhy = !buf ? "Out of memory for the recording. Restart the board." : "The microphone sent nothing.";
+    micWhy = T(!buf ? S_N_MIC_NO_MEMORY : S_N_MIC_NOTHING);
     free(buf);
     return 0;
   }
@@ -252,28 +265,29 @@ static int post(const char *path, const String &type, const uint8_t *body, size_
 
 // What went wrong, in plain words for the screen.
 static String failure(int code, const String &reply) {
-  const char *who = viaRelay() ? "The relay" : "OpenAI";
+  const char *who = viaRelay() ? T(S_N_SVC_RELAY) : "OpenAI";
   if (code < 0) return netFailText(who, code);
-  if (reply.indexOf("insufficient_quota") >= 0) return "The AI account is out of credit (quota).";
-  if (reply.indexOf("expired") >= 0 || reply.indexOf("invalid_api_key") >= 0 || code == 401)
-    return "AI key rejected: it's expired or wrong. Change it in the setup app.";
-  if (reply.indexOf("model_not_found") >= 0 || reply.indexOf("does not exist") >= 0)
-    return "OpenAI doesn't know the model in the settings.";
-  return netFailText(viaRelay() ? "The relay" : "The AI service", code);
+  if (reply.indexOf("insufficient_quota") >= 0) return T(S_N_AI_NO_CREDIT);
+  if (reply.indexOf("expired") >= 0 || reply.indexOf("invalid_api_key") >= 0 || code == 401) return T(S_N_AI_KEY_REJECTED);
+  if (reply.indexOf("model_not_found") >= 0 || reply.indexOf("does not exist") >= 0) return T(S_N_AI_NO_MODEL);
+  return netFailText(viaRelay() ? T(S_N_SVC_RELAY) : T(S_N_SVC_AI), code);
 }
 
 // Speech to text, on the job's task: true and the words, or false and why.
 static bool hear(const int16_t *pcm, size_t samples, String &heard, String &error) {
-  if (!notesAiConfigured()) return error = "Voice notes need an OpenAI key: add it in the setup app.", false;
-  if (!netUp()) return error = "No WiFi: I can't turn speech into text.", false;
+  if (!notesAiConfigured()) return error = T(S_N_VOICE_NO_KEY), false;
+  if (!netUp()) return error = T(S_N_VOICE_NO_WIFI), false;
   static const char *BOUNDARY = "----stickynote5d1e";
+  // The board's language (ISO-639-1, "ro") helps the speech to text: better
+  // words, and the right letters. Every part is in `head`, so the length below holds.
   String head = String("--") + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n" + cfg::str("notes.stt_model") + "\r\n--" +
+                BOUNDARY + "\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n" + LANGS[i18nLang()].code + "\r\n--" +
                 BOUNDARY + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"note.wav\"\r\n"
                 "Content-Type: audio/wav\r\n\r\n";
   String tail = String("\r\n--") + BOUNDARY + "--\r\n";
   size_t pcmBytes = samples * 2, len = head.length() + 44 + pcmBytes + tail.length();
   uint8_t *body = (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
-  if (!body) return error = "Out of memory for the recording. Restart the board.", false;
+  if (!body) return error = T(S_N_MIC_NO_MEMORY), false;
   uint8_t *p = body;
   memcpy(p, head.c_str(), head.length());
   p += head.length();
@@ -297,28 +311,35 @@ static bool hear(const int16_t *pcm, size_t samples, String &heard, String &erro
   }
   if (reply.indexOf("\"text\"") < 0) {  // a 200 that isn't speech to text (a captive portal, a wrong server)
     Serial.printf("notes: speech to text sent no text: %s\n", logSafe(reply, 80).c_str());
-    return error = String(viaRelay() ? "The relay" : "OpenAI") + " sent a reply that isn't speech to text.", false;
+    return error = capFirst(TF(S_N_VOICE_NOT_STT, viaRelay() ? T(S_N_SVC_RELAY) : "OpenAI")), false;
   }
   heard = jsonString(reply, "text");
   heard.trim();
   Serial.printf("notes: heard \"%s\" in %lu ms\n", heard.c_str(), (unsigned long)(millis() - start));
-  if (!heard.length()) return error = "I didn't hear any words.", false;
+  if (!heard.length()) return error = T(S_N_VOICE_NO_WORDS), false;
   return true;
 }
 
-static const char *INSTRUCTIONS =
-    "You keep a to-do list and notes shown on a small e-paper screen. You get the numbered list as it is "
-    "now and what the person just said. It is often speech turned into text, so it may have small errors. "
-    "Reply with lines only, each starting with one of these words:\n"
-    "TASK: a new task, short, in the person's language\n"
-    "NOTE: a new note\n"
-    "DONE: the number of a task that is now finished\n"
-    "UNDONE: the number of a task to open again\n"
-    "REMOVE: the number of an item to delete\n"
-    "SAY: one short sentence for the person, 150 characters at most\n"
-    "Several things to do become several TASK lines. Something to remember that isn't an action is a NOTE. "
-    "If the person asks a question about the list or wants it analysed (what is most urgent, what to do "
-    "first, a summary), answer in SAY and change nothing. Always end with exactly one SAY line.";
+// The AI's instructions, in English; what it writes for the person is in
+// the board's language (built for each request: the language can change).
+// The line words (TASK:, NOTE:...) stay English: applyAnswer() reads them.
+static String instructions() {
+  String lang = LANGS[i18nLang()].english;
+  return "You keep a to-do list and notes shown on a small e-paper screen. You get the numbered list as it is "
+         "now and what the person just said. It is often speech turned into text, so it may have small errors. "
+         "Reply with lines only, each starting with one of these words, written exactly like this, in English:\n"
+         "TASK: a new task, short\n"
+         "NOTE: a new note\n"
+         "DONE: the number of a task that is now finished\n"
+         "UNDONE: the number of a task to open again\n"
+         "REMOVE: the number of an item to delete\n"
+         "SAY: one short sentence for the person, 150 characters at most\n"
+         "Write the text after TASK:, NOTE: and SAY: in " + lang + ", with " + lang + "'s proper letters and "
+         "diacritics, and no emoji. "
+         "Several things to do become several TASK lines. Something to remember that isn't an action is a NOTE. "
+         "If the person asks a question about the list or wants it analysed (what is most urgent, what to do "
+         "first, a summary), answer in SAY and change nothing. Always end with exactly one SAY line.";
+}
 
 // The list as the AI sees it, numbered from 1. Built on the loop.
 static String listText() {
@@ -337,7 +358,7 @@ static int askAi(const String &list, const String &heard, String &out, String &r
   // Reasoning models take an effort; the older GPT-4 and 3.5 ones refuse the field.
   bool reasons = !model.startsWith("gpt-4") && !model.startsWith("gpt-3");
   String body = "{\"model\":\"" + jsonEscape(model) + "\"," + (reasons ? "\"reasoning\":{\"effort\":\"low\"}," : "") +
-                "\"max_output_tokens\":2000,\"store\":false,\"instructions\":\"" + jsonEscape(INSTRUCTIONS) +
+                "\"max_output_tokens\":2000,\"store\":false,\"instructions\":\"" + jsonEscape(instructions()) +
                 "\",\"input\":\"" + jsonEscape(input) + "\"}";
   uint32_t start = millis();
   int code = post("/v1/responses", "application/json", (const uint8_t *)body.c_str(), body.length(), reply);
@@ -372,9 +393,11 @@ static int askJson(const char *name, const String &instructions, const String &s
 // The AI's answer applied to the list, on the loop. `sameList`: the list
 // hasn't changed since the AI saw it, so its numbers are still right.
 static void applyAnswer(const String &heard, int code, const String &out, const String &reply, bool sameList, String &say) {
+  notesClearMarks();  // only this answer's changes stand out
   if (!out.length()) {
     // No AI: sort it by how it starts. "Add a task to...", "remind me to...",
-    // "I need to..." are tasks; anything else is a note.
+    // "I need to..." are tasks; anything else is a note. English starts only:
+    // in another language everything said becomes a note.
     static const char *const STARTS[] = {"add a task to ", "add a task ", "add task ", "new task ", "task ", "to do ", "todo ",
                                           "remind me to ", "i need to ", "i have to ", "don't forget to "};
     String lower = heard;
@@ -389,11 +412,11 @@ static void applyAnswer(const String &heard, int code, const String &out, const 
     if (task.length()) task.setCharAt(0, toupper(task[0]));
     add(task.length() > 0, task.length() ? task : heard);
     save();
-    String why = !notesAiConfigured() ? String("No OpenAI key set, so no AI.")
-                 : code == 0          ? String("No WiFi, so no AI.")
-                 : code == 200        ? String("The AI sent no answer.")
+    String why = !notesAiConfigured() ? String(T(S_N_NOTES_NO_KEY))
+                 : code == 0          ? String(T(S_N_NOTES_NO_WIFI))
+                 : code == 200        ? String(T(S_N_NOTES_NO_ANSWER))
                                       : failure(code, reply);
-    say = why + (task.length() ? " Added it as a task." : " Saved it as a note.");
+    say = why + T(task.length() ? S_N_NOTES_ADDED_TASK : S_N_NOTES_SAVED_NOTE);
     Serial.printf("notes: %s\n", logSafe(reply, 160).c_str());
     return;
   }
@@ -422,10 +445,13 @@ static void applyAnswer(const String &heard, int code, const String &out, const 
     if (numbered && !sameList) skipped = true;
     if (word == "TASK") adds.push_back({true, rest});
     else if (word == "NOTE") adds.push_back({false, rest});
-    else if (word == "DONE" && valid) items[number].done = true;
-    else if (word == "UNDONE" && valid) items[number].done = false;
+    else if ((word == "DONE" || word == "UNDONE") && valid) {
+      items[number].done = word == "DONE";
+      items[number].mark = NOTE_CHANGED;
+      markedAt = millis();
+    }
     else if (word == "REMOVE" && valid) remove.push_back(number);
-    else if (word == "SAY") say = rest;
+    else if (word == "SAY") say = textFold(rest);
   }
   std::sort(remove.begin(), remove.end());
   remove.erase(std::unique(remove.begin(), remove.end()), remove.end());
@@ -433,9 +459,12 @@ static void applyAnswer(const String &heard, int code, const String &out, const 
     if (remove[i] < (int)items.size()) items.erase(items.begin() + remove[i]);
   for (auto &a : adds) add(a.first, a.second);
   save();
-  if (!say.length()) say = "Done.";
-  if (skipped) say = "The list changed meanwhile, so I only added the new items.";
+  say.trim();
+  if (!say.length()) say = T(S_N_NOTES_DONE);
+  if (skipped) say = T(S_N_NOTES_CHANGED);
 }
+
+void notesApplyAi(const String &out, String &say) { applyAnswer("", 200, out, "", true, say); }
 
 // ---------------------------------------------------------------- the job
 
@@ -468,17 +497,17 @@ static void workerTask(void *) {
     if (job.kind == JOB_GAME) {
       if (!cancelled) {
         job.code = askJson(job.name, job.instructions, job.schema, job.heard, job.waitMs, job.out, job.reply);
-        if (job.code == 0) job.error = !notesAiConfigured() ? "There's no OpenAI key on the board." : "No WiFi, so I can't reach the AI.";
+        if (job.code == 0) job.error = T(!notesAiConfigured() ? S_N_GAME_NO_KEY : S_N_GAME_NO_WIFI);
         else if (job.code != 200) job.error = failure(job.code, job.reply);
-        else if (!job.out.length()) job.error = "The AI sent nothing back.";
+        else if (!job.out.length()) job.error = T(S_N_GAME_NOTHING);
         if (job.code != 200) Serial.printf("%s: %s\n", job.name, logSafe(job.reply, 160).c_str());
       }
     } else if (notesJobIsRecipe(job.kind)) {
       if (job.heardOk && !cancelled) {
-        job.code = askJson("recipe", RECIPE_INSTRUCTIONS, RECIPE_SCHEMA, "The person said: " + job.heard, 45000, job.out, job.reply);  // a recipe takes a while
-        if (job.code == 0) job.error = !notesAiConfigured() ? "Recipes need an OpenAI key: add it in the setup app." : "No WiFi: I can't ask the AI.";
+        job.code = askJson("recipe", recipeInstructions(), RECIPE_SCHEMA, "The person said: " + job.heard, 45000, job.out, job.reply);  // a recipe takes a while
+        if (job.code == 0) job.error = T(!notesAiConfigured() ? S_N_RECIPE_NO_KEY : S_N_RECIPE_NO_WIFI);
         else if (job.code != 200) job.error = failure(job.code, job.reply);
-        else if (!job.out.length()) job.error = "The AI sent no recipe. Try again.";
+        else if (!job.out.length()) job.error = T(S_N_RECIPE_NONE);
         if (job.code != 200) Serial.printf("recipes: %s\n", logSafe(job.reply, 160).c_str());
       }
     } else if (job.kind != JOB_DICTATE && job.heardOk && !cancelled) job.code = askAi(job.list, job.heard, job.out, job.reply);
@@ -500,7 +529,7 @@ void notesWorkerBegin() {
 bool notesStart(NotesJob kind, int16_t *pcm, size_t samples, const String &typed, String &why) {
   if (!worker || jobState == J_RUNNING) {
     free(pcm);
-    why = worker ? "Still finishing the last one. Try again in a moment." : "Out of memory. Restart the board.";
+    why = T(worker ? S_N_STILL_FINISHING : S_N_NO_MEMORY_RESTART);
     return false;
   }
   job.kind = kind;
@@ -519,7 +548,7 @@ bool notesStart(NotesJob kind, int16_t *pcm, size_t samples, const String &typed
 
 bool notesStartGame(const char *name, const String &instructions, const String &schema, const String &input, uint32_t waitMs, String &why) {
   if (!worker || jobState == J_RUNNING) {
-    why = worker ? "Still finishing the last request. Try again in a moment." : "Out of memory. Restart the board.";
+    why = T(worker ? S_N_STILL_FINISHING_REQUEST : S_N_NO_MEMORY_RESTART);
     return false;
   }
   job.kind = JOB_GAME;

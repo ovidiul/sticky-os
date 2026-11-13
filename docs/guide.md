@@ -66,9 +66,11 @@ look for the data:
   *Couldn't reach calendar.google.com.*, *...didn't answer in time.*,
   *Calendar feed too big*, *That link isn't a calendar*, *InfluxDB rejected
   the token.*) at the foot. One calendar failing doesn't hide the others.
-- **Notes:** while a voice or typed note is with the AI the strip says
-  *Thinking... tap to cancel*, and the board stays usable (buttons, other
-  apps, the timer, the setup app). A tap on the strip or OK cancels. When
+- **Notes:** while a voice or typed note is with the AI a large card over
+  the list says *Thinking...* (a speech bubble with three dots) and *tap to
+  cancel*, and the board stays usable (buttons, other apps, the timer, the
+  setup app). A tap anywhere in Notes or OK cancels; the card goes when the
+  answer is in. When
   it fails the strip says why: *AI key rejected*, *The AI account is out of
   credit*, *The relay is down*, *Can't reach the relay*; without the AI a
   note is still kept, sorted by how it starts.
@@ -83,6 +85,7 @@ then 1, 2, 4 and every 5 minutes.
 
 | Setting | What | Default |
 |---|---|---|
+| `device.language` | The board's language: `en`, `es`, `pt`, `fr`, `de`, `it`, `ru`, `tr`, `pl` or `ro` (see [Languages](#languages)). Also Settings → Language on the board | `en` |
 | `wifi.networks` | Up to 8 networks, tried in order. Secret: only the names are ever listed | none |
 | `device.name` | A name for the board (Bluetooth shows it starting with "Sticky") | `Sticky-<id>` |
 | `device.timezone` | A POSIX TZ string; the app picks it from a city. Not set: the clock follows the weather's place (the UTC offset open-meteo gives for it, so summer time changes within the hour), and UTC until the first forecast | the weather's |
@@ -109,6 +112,36 @@ The board's own preferences (rotation, sound, temperature unit, sleep,
 hidden apps and games) stay in the board's Settings. *Erase settings* in the setup app
 (factory reset) erases them too, with the Bluetooth bonds; the notes,
 tasks and photos stay.
+
+## Languages
+
+English, Español, Português, Français, Deutsch, Italiano, Русский, Türkçe,
+Polski, Română. Choose one in the setup app (the first step on its
+overview, *Language*, before WiFi) or on the board: **Settings → Language**,
+a list of the ten by their own names; the choice takes effect at once (no
+restart) and is the same setting the setup app edits (`device.language`).
+
+What changes:
+
+- every word on the screens, in every app, the status bar, quick settings,
+  Settings and About, the Listening and Thinking cards, the games' screens,
+  the welcome and update screens, and the plain-words errors;
+- dates: day and month names in that language and in its order ("Vineri,
+  13 noiembrie 2026", "13. November 2026"), the Calendar's week-strip
+  initials, the weather's days; times stay 24-hour; temperatures and the
+  battery voltage get a decimal comma where the language uses one;
+- the keyboard: see below;
+- the AI: Notes, Recipes, Quiz and Adventure ask the model to answer in the
+  board's language (the words that steer the board, `TASK:` and the JSON
+  keys, stay English), and speech to text is told which language to expect.
+
+Text that comes from elsewhere shows with its own letters: calendar
+events, notes, recipes, quotes and AI answers in any Latin or Cyrillic
+language. Characters the fonts don't have (Chinese, Arabic, emoji) become
+an ASCII look-alike or are left out.
+
+Still English in this version: the setup app's own pages, the built-in quiz
+questions and adventure story, the offline quotes and the Recipes example.
 
 ## Calendar links
 
@@ -205,7 +238,7 @@ timer adds an hourglass and its minutes left when there is room.
 | Timer | A countdown in large digits: 1, 3, 5, 10, 25 minutes or an hour; +1 and +5 minutes and Stop while it runs | The board. It rings even with button sounds off, and opens itself when the time is up. The board doesn't sleep while it runs |
 | Photos | Two albums, one after the other: the board's own photos, then the microSD card's JPEGs, in four greys, a new one every 10 minutes. The status bar says which album and where in it ("Board photos 2 / 5"). With none, it says how to add some. Double-tap the photo for full screen: the photo edge to edge, no status bar; double-tap again to bring it back | Photos sent from the setup app, kept in the board's flash (up to 100); the card's `photos` folder (baseline JPEG; progressive ones are refused) |
 | Quote | Quote of the Day in large serif italic, the author under it; a long quote wraps and gets smaller type. It changes at local midnight. *New quote* (or OK) shows another. Double-tap the quote for full screen: only the words, larger (up to 40 pt, still smaller for a long one), and the author, with ZenQuotes' credit in small type at the foot when it's theirs; double-tap again to bring back the heading and the button | Today's quote from ZenQuotes (`zenquotes.io/api/today`, free, no key), fetched once a day and kept in the board's flash (`/quote.txt`), so it shows offline too; *New quote* asks `/api/random`. Its quotes show ZenQuotes' attribution, as its free API asks. Without WiFi, with `quotes.online` off, or when ZenQuotes asks for a pause (it allows 5 requests in 30 s; the board waits 7 s between them), a quote comes from the board's own list of 54 public-domain quotes, and a quiet line under it says so |
-| Recipes | Say what you'd like to cook ("a quick vegetarian pasta for two") or type it, and the AI writes a recipe: the title, the time and how many it serves, the ingredients with tick boxes (tap one while you cook; the ticks last until another recipe is opened), the numbered steps, tips. Large type, a page at a time. Saved recipes are a list, newest first; *Delete* (tap twice) | Speech to text as for Notes (OpenAI or your relay), then the model in `notes.ai_model` answers as strict JSON (OpenAI structured outputs). The board reads it defensively (code fences and words around it, trailing commas, numbers as text, ingredients as plain strings, all capped and folded to ASCII) and keeps up to 30 in its flash (`/recipes/`; the 31st replaces the oldest). Failures say why: *AI key rejected: it's expired or wrong*, *The AI's recipe came back garbled. Try again.* |
+| Recipes | Say what you'd like to cook ("a quick vegetarian pasta for two") or type it, and the AI writes a recipe: the title, the time and how many it serves, the ingredients with tick boxes (tap one while you cook; the ticks last until another recipe is opened), the numbered steps, tips. Large type, a page at a time. Saved recipes are a list, newest first; *Delete* (tap twice) | Speech to text as for Notes (OpenAI or your relay), then the model in `notes.ai_model` answers as strict JSON (OpenAI structured outputs). The board reads it defensively (code fences and words around it, trailing commas, numbers as text, ingredients as plain strings, all capped, and anything the fonts lack folded to a look-alike) and keeps up to 30 in its flash (`/recipes/`; the 31st replaces the oldest). Failures say why: *AI key rejected: it's expired or wrong*, *The AI's recipe came back garbled. Try again.* |
 | Games | A folder of seven games (see Games below): 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, X and O | The board; Quiz and Adventure also the model in `notes.ai_model` when there's a key, WiFi and `games.ai` is on. Progress in the board's flash (`/games.txt`, `/games-practice.txt`) |
 | Claude | This week's Claude Code usage, all models and Fable alone, with reset times | Retained numbers under `claude.topic` on your MQTT broker: `…/seven_day/percent`, `…/seven_day/resets_at_unix`, `…/weekly_scoped/percent`, `…/age_seconds` |
 | Settings | Laid out like Android's: headings (Display, Sound and power, Connections, Apps, System), an icon, title and summary on each row. Tap a row with `>` for a page of choices (rotation, temperature, sleep on battery, which apps the home screen shows); tap a switch to turn it on or off; WiFi has the saved networks and adds new ones; *Connect to the setup app* starts Bluetooth setup | Kept in the board's flash |
@@ -239,19 +272,28 @@ Controls inside an app:
   up). Settings can fix it to one. The motion sensor's axes are set in
   `settings.h`.
 - **In Notes, tap the microphone, speak, and tap it again** (or hold OK and
-  speak, then let go): a voice note. The recording goes to OpenAI (or your
+  speak, then let go): a voice note. While it records, a large card in the
+  middle of the screen shows a microphone, *Listening...* and *Speak now ·
+  tap to stop* (or *let go of OK to stop*); then the *Thinking...* card
+  while the AI works. The same cards show for every recording: Recipes'
+  *Say a dish* and the keyboard's microphone (in Notes, Recipes and the
+  games; its Thinking card says *Turning speech into text*). The recording goes to OpenAI (or your
   relay, `openai.relay_host`) for speech to text, then the words go to the
   model in `notes.ai_model` with the current list. It can add tasks and notes, tick, untick and
   remove items, and answer questions about the list. If the AI can't be
-  reached, what was said is kept as a note.
+  reached, what was said is kept as a note. What the answer added gets a
+  black *NEW* pill at the end of its row (and beside *Task* / *Note* when the
+  item is open); a task it ticked or opened again gets an outlined *DONE* or
+  *OPEN* pill. The pills go when you leave Notes or after two minutes, and
+  the next answer replaces them (they are never saved).
 - **Weather:** tap a day for its hours (see the table). In portrait, swipe
   up / down for later and earlier hours.
 - **Quote:** *New quote*, OK or a swipe up for another (in full screen, OK or
   a swipe up); opening the app shows the day's quote again.
 - **Recipes:** *Say a dish* (tap, speak, tap again; or hold OK in the list,
   speak, let go) or *Type it* (the keyboard, its microphone dictates). While
-  the AI writes, the line says *Writing a recipe... tap here to cancel* (OK
-  cancels too). A recipe opens when it's ready and is saved. In a recipe:
+  the AI writes, the *Thinking...* card says *Writing a recipe · tap to
+  cancel*: a tap anywhere on the list (or OK) cancels. A recipe opens when it's ready and is saved. In a recipe:
   tap an ingredient to tick it, swipe up / down (or OK) for the pages, Back
   (or a swipe down on the first page) for the list. A recipe left open stays
   open when you go to another app and come back.
@@ -262,8 +304,14 @@ Controls inside an app:
   to today and reads the calendars again. Swipe left / right still changes app.
   Portrait stacks the card, the week and the agenda; landscape puts the card
   and the week on the left and the agenda on the right.
-- **The on-screen keyboard** (Notes, and WiFi passwords): QWERTY with shift (one
-  letter; tap it twice for caps lock; a sentence starts with a capital), `?123`
+- **The on-screen keyboard** (Notes, Recipes, the games and WiFi passwords): QWERTY (QWERTZ in German) with shift (one
+  letter; tap it twice for caps lock; a sentence starts with a capital). In a
+  language with accented letters a key left of `.` (labelled with the first
+  two, e.g. `ăâ`) opens a page of them: ă â î ș ț „ ” in Romanian, ä ö ü ß
+  in German, ç ğ ı ö ş ü in Turkish (where shift makes i İ), and so on;
+  `abc` goes back. In Russian the letters are the ЙЦУКЕН layout (with ъ and
+  ё) and a globe key switches to the Latin letters and back; a password
+  starts on the Latin ones. `?123`
   for digits and `@ # & - + ( ) / : ? ! ' " ; % *`, then `=\<` for
   `[ ] { } < > ^ ~ | \ $ _ =` and the backquote, backspace, space and
   Done (OK does the same). For a password it shows dots (*Show* reveals
@@ -278,7 +326,8 @@ Controls inside an app:
 - **Notes list:** tap a tick box to tick or untick a task; tap the words to
   open the item full screen (a `>` marks the ones cut short). Swipe up or down
   to turn the list's pages.
-- **One item open:** the whole text, as large as fits, with when it was added.
+- **One item open:** the whole text, as large as fits (large bold type when
+  it's short), with when it was added.
   Buttons: Back, Done / Not done (or Make task), Make note, Delete (tap twice).
   Swipe left or right, or UP / DOWN, for the previous or next item; swipe down
   or OK to go back to the list.
@@ -311,7 +360,7 @@ When it fails, the screen says why in plain words (*AI key rejected: it's
 expired or wrong*, *No WiFi*, *the quiz came back garbled*) and offers the
 built-in questions or story. The AI's reply is strict JSON (OpenAI
 structured outputs), read defensively as a recipe is: capped, folded to
-ASCII, and a question without four answers is left out.
+the letters the fonts have, and a question without four answers is left out.
 
 The progress is kept in the board's flash and written by the loop only:
 `/games.txt` (best scores, levels, stars, the daily streak, the X and O

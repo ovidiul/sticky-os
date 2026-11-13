@@ -10,6 +10,8 @@
 #include "config.h"
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
+#include "glyphs.h"
+#include "i18n.h"
 #include "mbedtls/sha256.h"
 #include "net.h"
 
@@ -34,6 +36,10 @@ struct Locked {
 };
 static UpdInfo info;      // under mtx
 static bool pending;      // this firmware boots on trial
+// updBegin() runs before the settings (and the language) are loaded, so
+// what it found is put in words when it's read (updInfo).
+static uint8_t bootNote;  // 1: updated to bootTag, 2: bootTag didn't start
+static String bootTag;
 // What the last check found to install; the network task's own.
 static String binUrl, shaUrl, shaHex, binTag;
 static size_t binSize;
@@ -130,7 +136,7 @@ void updBegin() {
   // Did the last install keep running? If this isn't the version it
   // restarted into, the new one went back: remember not to try it again.
   Preferences p;
-  String tried, status = "Not checked yet";
+  String tried;
   bool failed = false;
   if (p.begin(NVS_NS, false)) {
     tried = p.getString("try", "");
@@ -139,12 +145,12 @@ void updBegin() {
       p.remove("try");
       if (tried == updVersion()) {
         Serial.printf("update: now running %s, as installed\n", tried.c_str());
-        status = "Updated to " + tried;
+        bootNote = 1, bootTag = tried;
       } else {
         badTag = tried;
         p.putString("bad", tried);
         Serial.printf("update: %s didn't keep running: back on %s, and it won't install by itself again\n", tried.c_str(), updVersion());
-        status = tried + " didn't start: back on " + updVersion();
+        bootNote = 2, bootTag = tried;
         failed = true;
       }
     }
@@ -152,7 +158,7 @@ void updBegin() {
   }
   Locked l;
   info.state = UPD_IDLE;
-  info.status = status;
+  info.status = "";  // until a check or an install says more: the boot's note (updInfo)
   info.failed = failed;
 }
 
@@ -167,7 +173,12 @@ void updMarkGood(const char *why) {
 
 UpdInfo updInfo() {
   Locked l;
-  return info;
+  UpdInfo r = info;
+  if (!r.status.length() && r.state == UPD_IDLE)
+    r.status = bootNote == 1 ? TF(S_N_UPD_UPDATED, bootTag.c_str())
+               : bootNote == 2 ? TF(S_N_UPD_WENT_BACK, bootTag.c_str(), updVersion())
+                               : String(T(S_N_UPD_NOT_CHECKED));
+  return r;
 }
 
 uint8_t updState() { return info.state; }  // one byte: no lock needed
@@ -315,11 +326,18 @@ static const char *valueOf(const char *p, const char *end, const char *key) {
   return nullptr;
 }
 
-// A JSON string at p, decoded, at most `cap` bytes. \u escapes outside
-// ASCII and raw UTF-8 become their nearest ASCII (the fonts have no more).
+// A JSON string at p, decoded (UTF-8, \u escapes included), at most `cap`
+// bytes, whole characters only.
 static String stringAt(const char *p, const char *end, size_t cap) {
   String out;
   if (!p || p >= end || *p != '"') return out;
+  auto hex4 = [&](const char *h) -> long {  // the 4 hex digits at h, -1: not there
+    if (h + 4 > end) return -1;
+    char d[5] = {h[0], h[1], h[2], h[3], 0};
+    for (int i = 0; i < 4; i++)
+      if (!isxdigit((unsigned char)d[i])) return -1;
+    return strtol(d, nullptr, 16);
+  };
   for (p++; p < end && *p != '"' && out.length() < cap; p++) {
     unsigned c = (unsigned char)*p;
     if (c == '\\' && p + 1 < end) {
@@ -327,27 +345,21 @@ static String stringAt(const char *p, const char *end, size_t cap) {
       if (e == 'n') out += '\n';
       else if (e == 't') out += ' ';
       else if (e == 'r') continue;
-      else if (e == 'u' && p + 4 < end) {
-        char hex[5] = {p[1], p[2], p[3], p[4], 0};
-        unsigned u = strtoul(hex, nullptr, 16);
+      else if (e == 'u') {
+        long u = hex4(p + 1);
+        if (u < 0) continue;
         p += 4;
-        if (u >= 0x20 && u < 0x7f) out += (char)u;
-        else if (u == 0x2018 || u == 0x2019) out += '\'';
-        else if (u == 0x201c || u == 0x201d) out += '"';
-        else if (u == 0x2013 || u == 0x2014) out += '-';
-        else if (u == 0x2026) out += "...";
+        if (u >= 0xD800 && u < 0xDC00 && p + 2 < end && p[1] == '\\' && p[2] == 'u') {  // a surrogate pair
+          long lo = hex4(p + 3);
+          if (lo >= 0xDC00 && lo < 0xE000) u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00), p += 6;
+        }
+        if (u >= 0x20 && !(u >= 0xD800 && u < 0xE000) && out.length() + 4 <= cap) utf8Append(out, u);
       } else out += e;  // \" \\ \/
-    } else if (c >= 0x80) {  // raw UTF-8: the common punctuation, the rest dropped
-      if (c == 0xE2 && p + 2 < end && (unsigned char)p[1] == 0x80) {
-        unsigned d = (unsigned char)p[2];
-        if (d == 0x98 || d == 0x99) out += '\'';
-        else if (d == 0x9C || d == 0x9D) out += '"';
-        else if (d == 0x93 || d == 0x94) out += '-';
-        else if (d == 0xA6) out += "...";
-        p += 2;
-      } else {
-        while (p + 1 < end && ((unsigned char)p[1] & 0xC0) == 0x80) p++;
-      }
+    } else if (c >= 0x80) {  // raw UTF-8: the whole character, or none of it
+      int len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+      if (p + len > end || out.length() + len > cap) break;
+      out.concat(p, len);
+      p += len - 1;
     } else if (c >= 0x20) out += (char)c;
   }
   return out;
@@ -394,9 +406,10 @@ static String notesFrom(const String &body) {
     out += line;
     lines++;
   }
+  out = textFold(out);  // the letters the fonts have; the rest folded or dropped
   if (out.length() > 180) {
     int cut = out.lastIndexOf(' ', 177);
-    out = out.substring(0, cut > 120 ? cut : 177) + "...";
+    out = out.substring(0, cut > 120 ? cut : utf8Cut(out.c_str(), 177)) + "...";
   }
   return out;
 }
@@ -413,9 +426,9 @@ static bool isHex64(const String &s) {
 bool updCheck() {
   String feed = cfg::str("update.url");
   bool custom = feed.length() > 0;
-  const char *where = custom ? "the release feed" : "GitHub";
+  const char *where = custom ? T(S_N_SVC_FEED) : "GitHub";
   if (!custom) feed = GITHUB_FEED;
-  setStatus(UPD_CHECKING, "Checking...", false);
+  setStatus(UPD_CHECKING, T(S_N_UPD_CHECKING), false);
   Serial.printf("update: checking %s\n", custom ? feed.c_str() : "GitHub");
 
   BufferSink json(FEED_MAX);
@@ -423,10 +436,9 @@ bool updCheck() {
   int code = httpGet(feed, custom && OTA_HTTP, !custom, json, why);
   if (code != 200 && !(json.full && json.len)) {
     String status;
-    if (code == 404) status = custom ? "No release at the feed's address" : "No release published yet";
-    else if (code == 403 || code == 429) status = String(where) + " is busy (rate limit): try later";
-    else if (code < 0) status = String("Couldn't reach ") + where;
-    else status = String(where) + " answered " + code;
+    if (code == 404) status = T(custom ? S_N_UPD_NO_RELEASE_FEED : S_N_UPD_NO_RELEASE);
+    else if (code == 403 || code == 429) status = capFirst(TF(S_N_UPD_BUSY, where));
+    else status = netFailText(where, code);
     Serial.printf("update: check failed: %s (%s)\n", why.c_str(), status.c_str());
     Locked l;
     info.state = UPD_IDLE;
@@ -470,7 +482,7 @@ bool updCheck() {
   long v[3];
   if (!tag.length() || !parseVersion(tag.c_str(), v)) {
     Serial.printf("update: the answer has no version (tag \"%s\", %u bytes)\n", tag.c_str(), (unsigned)json.len);
-    setStatus(UPD_IDLE, "The release feed's answer wasn't understood", true);
+    setStatus(UPD_IDLE, T(S_N_UPD_GARBLED), true);
     return false;
   }
   int cmp = updCompare(tag.c_str(), updVersion());
@@ -478,11 +490,11 @@ bool updCheck() {
   bool wentBack = tag == badTag;  // it was installed once and didn't keep running
   bool installable = url.length() && size > 0 && (updIsDev() || cmp > 0);
   String status;
-  if ((newer || updIsDev()) && !url.length()) status = tag + " has no " + ASSET + " to install";
-  else if (newer && wentBack) status = tag + " didn't start here before: install it by hand to try again";
-  else if (newer) status = tag + " is available";
-  else if (updIsDev()) status = tag + " is the latest release (this is a dev build)";
-  else status = "You're up to date";
+  if ((newer || updIsDev()) && !url.length()) status = TF(S_N_UPD_NO_FILE, tag.c_str(), ASSET);
+  else if (newer && wentBack) status = TF(S_N_UPD_FAILED_BEFORE, tag.c_str());
+  else if (newer) status = TF(S_N_UPD_AVAILABLE, tag.c_str());
+  else if (updIsDev()) status = TF(S_N_UPD_LATEST_DEV, tag.c_str());
+  else status = T(S_N_UPD_UP_TO_DATE);
   Serial.printf("update: latest %s (this is %s), %s %u bytes, checksum %s: %s\n", tag.c_str(), updVersion(),
                 url.length() ? "sticky-os.bin" : "no sticky-os.bin,", (unsigned)size,
                 shaAsset.length() ? "file" : sha.length() ? "digest" : "none", status.c_str());
@@ -548,19 +560,19 @@ static bool installFailed(const String &status, const String &why) {
 }
 
 bool updInstall() {
-  if (!binUrl.length() || !binSize) return installFailed("Nothing to install: check first", "no release");
+  if (!binUrl.length() || !binSize) return installFailed(T(S_N_UPD_NOTHING), "no release");
   String tag = binTag;
   {
     Locked l;
     info.state = UPD_INSTALLING;
     info.percent = 0;
-    info.status = "Updating to " + tag;
+    info.status = TF(S_N_UPD_UPDATING, tag.c_str());
     info.failed = false;
   }
   const esp_partition_t *next = esp_ota_get_next_update_partition(nullptr);
-  if (!next) return installFailed("This board has no second app slot", "no OTA partition");
+  if (!next) return installFailed(T(S_N_UPD_NO_SLOT), "no OTA partition");
   if (binSize > next->size)
-    return installFailed(tag + " is too big for this board's app slot",
+    return installFailed(TF(S_N_UPD_TOO_BIG, tag.c_str()),
                          String(binSize) + " bytes, the slot holds " + String(next->size));
   Serial.printf("update: installing %s (%u bytes) into %s\n", tag.c_str(), (unsigned)binSize, next->label);
 
@@ -571,18 +583,18 @@ bool updInstall() {
     String text = file.buf ? String(file.buf) : String();
     text.trim();
     String hex = text.substring(0, 64);
-    if (code != 200 || !isHex64(hex)) return installFailed("Couldn't get the release's checksum", why.length() ? why : "not a SHA-256: " + text.substring(0, 20));
+    if (code != 200 || !isHex64(hex)) return installFailed(T(S_N_UPD_NO_CHECKSUM), why.length() ? why : "not a SHA-256: " + text.substring(0, 20));
     expect = hex;
   }
-  if (expect.length() && !isHex64(expect)) return installFailed("The release's checksum isn't valid", expect.substring(0, 20));
+  if (expect.length() && !isHex64(expect)) return installFailed(T(S_N_UPD_BAD_CHECKSUM), expect.substring(0, 20));
 
-  if (!Update.begin(binSize, U_FLASH)) return installFailed("Couldn't start writing the update", Update.errorString());
+  if (!Update.begin(binSize, U_FLASH)) return installFailed(T(S_N_UPD_CANT_WRITE), Update.errorString());
   FlashSink sink(binSize);
   int code = httpGet(binUrl, binHttpOk, false, sink, why);
   if (code != 200 || sink.done != binSize) {
     Update.abort();
     if (code == 200) why = "got " + String(sink.done) + " of " + String(binSize) + " bytes";
-    String status = sink.why.length() ? "The download doesn't match the release" : "The download didn't finish";
+    String status = T(sink.why.length() ? S_N_UPD_MISMATCH : S_N_UPD_UNFINISHED);
     return installFailed(status, why);
   }
   uint8_t digest[32];
@@ -591,10 +603,10 @@ bool updInstall() {
   for (int i = 0; i < 32; i++) sprintf(hex + i * 2, "%02x", digest[i]);
   if (expect.length() && !expect.equalsIgnoreCase(hex)) {
     Update.abort();
-    return installFailed("The download's checksum doesn't match", String("got ") + hex + ", want " + expect);
+    return installFailed(T(S_N_UPD_CHECKSUM_DIFFERS), String("got ") + hex + ", want " + expect);
   }
   if (!expect.length()) Serial.println("update: the release has no checksum: the size and the image's own check only");
-  if (!Update.end()) return installFailed("The new firmware didn't check out", Update.errorString());  // the image's own hash too
+  if (!Update.end()) return installFailed(T(S_N_UPD_DIDNT_CHECK_OUT), Update.errorString());  // the image's own hash too
 
   Serial.printf("update: %s written and checked (sha256 %s); restarting into it\n", tag.c_str(), hex);
   Preferences p;
@@ -606,7 +618,7 @@ bool updInstall() {
     Locked l;
     info.state = UPD_RESTARTING;
     info.percent = 100;
-    info.status = "Restarting...";
+    info.status = T(S_N_UPD_RESTARTING);
   }
   delay(3000);  // the loop shows "Restarting..."
   Serial.flush();

@@ -3,6 +3,8 @@
 #include <LittleFS.h>
 #include <algorithm>
 
+#include "glyphs.h"
+#include "i18n.h"
 #include "json.h"
 #include "provjson.h"
 
@@ -21,22 +23,26 @@ const char *const RECIPE_SCHEMA =
     "\"steps\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},"
     "\"tips\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}";
 
-const char *const RECIPE_INSTRUCTIONS =
-    "You write recipes for a small e-paper screen in a kitchen. The person says what they would like to cook; it "
-    "is often speech turned into text, so it may have small errors. Write one good, tested-style home recipe that "
-    "matches what they asked (diet, time, number of people, ingredients they mention). Reply with the JSON object "
-    "only. title: short, at most 40 characters. serves: the number of people. time: the total time, like "
-    "\"25 min\" or \"1 h 10 min\". ingredients: each with qty (amount and unit, metric, like \"200 g\", \"2 tbsp\", "
-    "\"1\", or \"\" for to taste) and item (the ingredient, a few words). steps: in order, each one or two short "
-    "sentences, without numbers in front. tips: zero to three short tips. Use plain ASCII: write degrees as "
-    "\"180 C\", fractions as \"1/2\". Answer in the person's language. If what they said is not about food or "
-    "cooking, reply with an empty title, serves 0, empty lists, and one tip that says what you can do.";
+String recipeInstructions() {
+  String lang = LANGS[i18nLang()].english;
+  return "You write recipes for a small e-paper screen in a kitchen. The person says what they would like to cook; it "
+         "is often speech turned into text, so it may have small errors. Write one good, tested-style home recipe that "
+         "matches what they asked (diet, time, number of people, ingredients they mention). Reply with the JSON object "
+         "only, its keys exactly as in the schema. title: short, at most 40 characters. serves: the number of people. "
+         "time: the total time, like \"25 min\" or \"1 h 10 min\". ingredients: each with qty (amount and unit, metric, "
+         "like \"200 g\", \"2 tbsp\", \"1\", or \"\" for to taste) and item (the ingredient, a few words). steps: in order, "
+         "each one or two short sentences, without numbers in front. tips: zero to three short tips. Write degrees as "
+         "\"180 C\" and fractions as \"1/2\"; no emoji. Write the title, time, quantities, ingredients, steps and tips "
+         "in " + lang + ", with " + lang + "'s proper letters and diacritics, whatever language the person used. If "
+         "what they said is not about food or cooking, reply with an empty title, serves 0, empty lists, and one tip "
+         "that says what you can do.";
+}
 
 // ---------------------------------------------------------------- reading a reply
 
-// Folded to ASCII, spaces run together, cut at a word (with "...") past `max`.
+// As the fonts can draw it (textFold), spaces run together, cut at a word (with "...") past `max` bytes.
 static String clean(const String &s, int max) {
-  String in = asciiFold(s), out;
+  String in = textFold(s), out;
   out.reserve(in.length());
   for (size_t i = 0; i < in.length(); i++) {
     char c = in[i];
@@ -46,7 +52,7 @@ static String clean(const String &s, int max) {
   out.trim();
   if ((int)out.length() > max) {
     int cut = out.lastIndexOf(' ', max - 3);
-    out = out.substring(0, cut > max / 2 ? cut : max - 3) + "...";
+    out = out.substring(0, cut > max / 2 ? cut : utf8Cut(out.c_str(), max - 3)) + "...";
   }
   return out;
 }
@@ -120,8 +126,8 @@ bool recipeParse(const String &text, Recipe &out, String &why) {
   String t;
   pj::Val root;
   int found = aiJsonObject(text, t, root);
-  if (found < 0) return why = "The AI's recipe came back garbled. Try again.", false;
-  if (found == 0) return why = "The AI's answer wasn't a recipe. Try again.", false;
+  if (found < 0) return why = T(S_N_RECIPE_GARBLED), false;
+  if (found == 0) return why = T(S_N_RECIPE_NOT_RECIPE), false;
   pj::Val inner, v, e;
   if (pj::member(root, "recipe", inner) && inner.type == pj::OBJ) root = inner;  // {"recipe": {...}}
 
@@ -168,10 +174,10 @@ bool recipeParse(const String &text, Recipe &out, String &why) {
   if (pj::member(root, "added", v) && pj::num(v, added) && added > 0) out.added = added;
 
   if (!out.title.length()) {  // the AI's way of saying "not a recipe"
-    why = out.tips.size() ? out.tips[0] : String("The AI couldn't make a recipe of that. Try saying a dish.");
+    why = out.tips.size() ? out.tips[0] : String(T(S_N_RECIPE_CANT));
     return false;
   }
-  if (out.ingredients.empty() && out.steps.empty()) return why = "The AI's recipe had no ingredients or steps. Try again.", false;
+  if (out.ingredients.empty() && out.steps.empty()) return why = T(S_N_RECIPE_EMPTY), false;
   return true;
 }
 
@@ -339,7 +345,7 @@ bool recipeDemoLoad(int index, Recipe &out) {
 
 int recipeSelfTest() {
   struct Case { const char *name, *text; bool ok; const char *check; };
-  static const Case CASES[] = {
+  const Case CASES[] = {  // not static: the expected error is in the board's language
       {"sample", RECIPE_SAMPLE, true, "Lemon, pea and basil pasta|2|20 min|8|6|2"},
       {"code fence", "```json\n{\"title\":\"Toast\",\"serves\":1,\"time\":\"5 min\",\"ingredients\":[{\"qty\":\"1\",\"item\":\"bread\"}],"
                      "\"steps\":[\"Toast it.\"],\"tips\":[]}\n```", true, "Toast|1|5 min|1|1|0"},
@@ -351,7 +357,7 @@ int recipeSelfTest() {
        true, "\"Best\" pancakes|4|30 min|2|2|1"},
       {"trailing commas", "{\"title\":\"Rice\",\"serves\":2,\"time\":\"20 min\",\"ingredients\":[{\"qty\":\"150 g\",\"item\":\"rice\"},],"
                           "\"steps\":[\"Rinse.\",\"Simmer.\",],\"tips\":[],}", true, "Rice|2|20 min|1|2|0"},
-      {"not valid json", "{\"title\":\"Soup\" \"serves\":2, steps: [boil]}", false, "The AI's recipe came back garbled. Try again."},
+      {"not valid json", "{\"title\":\"Soup\" \"serves\":2, steps: [boil]}", false, T(S_N_RECIPE_GARBLED)},
       {"cut short", "{\"title\":\"Soup\",\"serves\":2,\"time\":\"30 min\",\"ingredients\":[{\"qty\":\"1\",\"item\":\"on", false, ""},
       {"not json", "Sorry, I can't help with that.", false, ""},
       {"refusal", "{\"title\":\"\",\"serves\":0,\"time\":\"\",\"ingredients\":[],\"steps\":[],\"tips\":[\"I can only write recipes.\"]}", false, "I can only write recipes."},

@@ -15,6 +15,7 @@ static const CfgKey KEYS[] = {
   // name                 nvs            type        secret check       min   max    default                   label
   {"wifi.networks",       "wifi",        CFG_WIFI,   true,  CHK_TEXT,   0,    cfg::MAX_WIFI, "",               "WiFi networks, tried in order"},
   {"device.name",         "dev_name",    CFG_STR,    false, CHK_NAME,   0,    20,    "",                       "Name; empty: Sticky-<id>"},
+  {"device.language",     "dev_lang",    CFG_STR,    false, CHK_LANG,   2,    5,     "en",                     "Language of the board's screens"},
   {"device.timezone",     "dev_tz",      CFG_STR,    false, CHK_TZ,     3,    63,    "UTC0",                   "Time zone (POSIX TZ)"},
   {"weather.locate",      "wx_locate",   CFG_BOOL,   false, CHK_TEXT,   0,    0,     "true",                   "Find the town from the internet address"},
   {"weather.place",       "wx_place",    CFG_STR,    false, CHK_TEXT,   0,    40,    "",                       "Town shown with the weather"},
@@ -429,6 +430,10 @@ static bool checkString(const CfgKey &k, const String &v, String &err) {
     case CHK_NAME: ok = allChars(v, " -_"); break;
     case CHK_TOPIC: ok = allChars(v, "-_./") && v[0] != '/' && v[v.length() - 1] != '/'; break;
     case CHK_ICS: return checkIcs(v, err);
+    case CHK_LANG:
+      ok = false;
+      for (const char *code : LANGUAGE_CODES) ok |= v == code;
+      break;
     case CHK_PEM: ok = v.startsWith("-----BEGIN CERTIFICATE-----") && v.indexOf("-----END CERTIFICATE-----") > 0 &&
                        validUtf8(v, true) && allChars(v, "+/=- \n\r"); break;
   }

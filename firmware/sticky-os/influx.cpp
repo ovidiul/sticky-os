@@ -2,6 +2,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include "config.h"
+#include "i18n.h"
 #include "net.h"
 #include <memory>
 
@@ -38,7 +39,7 @@ bool fetchInflux(CalList &out, String &error) {
   http.setTimeout(10000);
   http.setConnectTimeout(NET_CONNECT_MS);
   String url = cfg::str("influx.url");
-  if (!influxConfigured()) return error = "No InfluxDB set up.", false;
+  if (!influxConfigured()) return error = T(S_N_INFLUX_NONE), false;
   while (url.endsWith("/")) url.remove(url.length() - 1);
   url += "/api/v2/query?org=" + cfg::str("influx.org");
   WiFiClientSecure tls;  // for an https:// URL: your own CA (mqtt.ca) when it's set, else the public ones
@@ -53,7 +54,7 @@ bool fetchInflux(CalList &out, String &error) {
     ok = http.begin(url);
   }
   std::unique_ptr<NetTls> held(use);
-  if (!ok) return error = "The InfluxDB address in the settings isn't right.", false;
+  if (!ok) return error = T(S_N_INFLUX_BAD_ADDRESS), false;
   http.addHeader("Authorization", "Token " + cfg::str("influx.token"));
   http.addHeader("Content-Type", "application/vnd.flux");
   http.addHeader("Accept", "application/csv");
@@ -67,7 +68,7 @@ bool fetchInflux(CalList &out, String &error) {
   String body;
   bool read = netReadBody(http, body, 256 * 1024);
   http.end();
-  if (!read) return error = "InfluxDB's reply didn't arrive whole.", false;
+  if (!read) return error = T(S_N_INFLUX_CUT), false;
 
   // Annotated CSV: "#..." rows, a header row naming the columns, data rows.
   CalList events;
@@ -89,7 +90,7 @@ bool fetchInflux(CalList &out, String &error) {
         idx[c] = -1;
         for (int i = 0; i < nf; i++)
           if (f[i] == COLS[c]) idx[c] = i;
-        if (idx[c] < 0) return error = "InfluxDB sent a reply without the calendar's columns.", false;
+        if (idx[c] < 0) return error = T(S_N_INFLUX_NO_COLUMNS), false;
       }
       header = true;
       continue;

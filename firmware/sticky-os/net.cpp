@@ -7,6 +7,8 @@
 #include <algorithm>
 
 #include "config.h"
+#include "glyphs.h"
+#include "i18n.h"
 #include "esp_heap_caps.h"
 #include "esp_mac.h"
 #include "letsencrypt_ca.h"
@@ -120,23 +122,33 @@ uint32_t netTlsLowestBlock() {
 
 // ---------------------------------------------------------------- errors, bodies
 
+String capFirst(const String &s) {
+  int i = 0;
+  uint32_t cp = utf8Next(s.c_str(), i);
+  if (!cp) return s;
+  String out;
+  utf8Append(out, cpUpper(cp, i18nLang() == L_TR));
+  return out + (s.c_str() + i);
+}
+
 String netFailText(const char *who, int code, const char *secret) {
-  String w = who, mid = who;  // "The relay" starts a sentence; "the relay" ends one
-  if (mid.startsWith("The ")) mid.setCharAt(0, 't');
   switch (code) {
-    case HTTPC_ERROR_CONNECTION_REFUSED: return "Can't reach " + mid + ".";
-    case HTTPC_ERROR_READ_TIMEOUT: return w + " didn't answer in time.";
+    case HTTPC_ERROR_CONNECTION_REFUSED: return capFirst(TF(S_N_FAIL_REACH, who));
+    case HTTPC_ERROR_READ_TIMEOUT: return capFirst(TF(S_N_FAIL_SLOW, who));
     case HTTPC_ERROR_CONNECTION_LOST:
-    case HTTPC_ERROR_NOT_CONNECTED: return "The connection to " + mid + " broke off.";
-    case NET_ERR_BAD_BODY: return w + "'s reply came broken or too long.";
+    case HTTPC_ERROR_NOT_CONNECTED: return capFirst(TF(S_N_FAIL_BROKE, who));
+    case NET_ERR_BAD_BODY: return capFirst(TF(S_N_FAIL_BODY, who));
     case 401:
-    case 403: return w + " rejected the " + secret + ".";
-    case 404: return w + " doesn't know that address (404).";
-    case 429: return w + ": quota or rate limit reached. Try later.";
+    case 403: {
+      StrId id = secret && !strcmp(secret, "token") ? S_N_FAIL_TOKEN : secret && !strcmp(secret, "login") ? S_N_FAIL_LOGIN : S_N_FAIL_KEY;
+      return capFirst(TF(id, who));
+    }
+    case 404: return capFirst(TF(S_N_FAIL_404, who));
+    case 429: return capFirst(TF(S_N_FAIL_QUOTA, who));
   }
-  if (code < 0) return "Can't reach " + mid + ".";
-  if (code >= 500) return w + " is down (error " + String(code) + "). Try later.";
-  return w + " answered " + String(code) + ".";
+  if (code < 0) return capFirst(TF(S_N_FAIL_REACH, who));
+  if (code >= 500) return capFirst(TF(S_N_FAIL_DOWN, who, code));
+  return capFirst(TF(S_N_FAIL_CODE, who, code));
 }
 
 // A Stream that keeps what's written to it, up to a cap: HTTPClient's
@@ -277,29 +289,29 @@ bool netReconnect() {
 
 static String reasonText(uint8_t r) {
   switch (r) {
-    case WIFI_REASON_NO_AP_FOUND: return "The network isn't in range.";
+    case WIFI_REASON_NO_AP_FOUND: return T(S_N_WIFI_NOT_IN_RANGE);
     case WIFI_REASON_AUTH_FAIL:
     case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
     case WIFI_REASON_HANDSHAKE_TIMEOUT:
-    case WIFI_REASON_MIC_FAILURE: return "Wrong password.";
-    case WIFI_REASON_ASSOC_FAIL: return "The router refused the connection.";
+    case WIFI_REASON_MIC_FAILURE: return T(S_N_WIFI_WRONG_PASSWORD);
+    case WIFI_REASON_ASSOC_FAIL: return T(S_N_WIFI_REFUSED);
     case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY:
-    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD: return "The network uses a kind of security the board can't.";
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD: return T(S_N_WIFI_SECURITY);
     case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
-    case WIFI_REASON_BEACON_TIMEOUT: return "The signal is too weak. Move closer to the router.";
+    case WIFI_REASON_BEACON_TIMEOUT: return T(S_N_WIFI_WEAK);
     case WIFI_REASON_AUTH_EXPIRE:
     case WIFI_REASON_ASSOC_EXPIRE:
     case WIFI_REASON_ASSOC_TOOMANY:
     case WIFI_REASON_CONNECTION_FAIL:
-    case WIFI_REASON_AP_TSF_RESET: return "The router didn't let the board in. Try again in a moment.";
-    case 0: return "No answer in time. Is it in range, and the password right?";
-    default: return "The router turned the board away (code " + String(r) + ").";
+    case WIFI_REASON_AP_TSF_RESET: return T(S_N_WIFI_NOT_LET_IN);
+    case 0: return T(S_N_WIFI_NO_ANSWER);
+    default: return TF(S_N_WIFI_TURNED_AWAY, (int)r);
   }
 }
 
 bool netScan(std::vector<NetSeen> &out, String &why) {
   out.clear();
-  if (!netLockWifi(5000)) return why = "The board is busy with WiFi. Try again.", false;
+  if (!netLockWifi(5000)) return why = T(S_N_WIFI_BUSY), false;
   if (!(WiFi.getMode() & WIFI_STA)) WiFi.mode(WIFI_STA);
   int n = -2;
   for (int attempt = 0; attempt < 3 && n < 0; attempt++) {
@@ -323,7 +335,7 @@ bool netScan(std::vector<NetSeen> &out, String &why) {
   netUnlockWifi();
   std::sort(out.begin(), out.end(), [](const NetSeen &a, const NetSeen &b) { return a.rssi > b.rssi; });
   if (out.size() > 20) out.resize(20);
-  if (n < 0) return why = "The scan failed. Try again.", false;
+  if (n < 0) return why = T(S_N_WIFI_SCAN_FAILED), false;
   return true;
 }
 
@@ -338,7 +350,7 @@ bool netSeesAny(const std::vector<String> &ssids) {
 }
 
 bool netJoin(const String &ssid, const String &pass, String &why, uint32_t timeoutMs) {
-  if (!netLockWifi(5000)) return why = "The board is busy with WiFi. Try again.", false;
+  if (!netLockWifi(5000)) return why = T(S_N_WIFI_BUSY), false;
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(100);
@@ -392,7 +404,7 @@ static int numbersAfter(const String &json, const char *key, int from, float *ou
 static char place[48], latitude[12], longitude[12];
 
 static void loadWhere() {
-  strlcpy(place, cfg::str("weather.place").c_str(), sizeof place);
+  utf8Copy(place, cfg::str("weather.place").c_str(), sizeof place);
   if (cfg::isSet("weather.lat") && cfg::isSet("weather.lon")) {
     snprintf(latitude, sizeof latitude, "%.2f", cfg::real("weather.lat"));
     snprintf(longitude, sizeof longitude, "%.2f", cfg::real("weather.lon"));
@@ -452,14 +464,14 @@ bool weatherLocate() {
   snprintf(lo, sizeof lo, "%.2f", lon);
   strlcpy(latitude, la, sizeof latitude);
   strlcpy(longitude, lo, sizeof longitude);
-  strlcpy(place, city.c_str(), sizeof place);
+  utf8Copy(place, city.c_str(), sizeof place);
   Serial.printf("weather: the address is in %s\n", place);
   return true;
 }
 
 bool fetchWeather(Weather &w, String &error) {
   error = "";
-  if (!netUp() || !weatherKnowsWhere()) return error = "No WiFi.", false;
+  if (!netUp() || !weatherKnowsWhere()) return error = T(S_N_NO_WIFI), false;
   NetTls use;
   WiFiClientSecure tls;
   tls.setCACert(LETSENCRYPT_CA);  // api.open-meteo.com is on Let's Encrypt
@@ -471,21 +483,21 @@ bool fetchWeather(Weather &w, String &error) {
   String url = String("https://api.open-meteo.com/v1/forecast?latitude=") + latitude + "&longitude=" + longitude +
                "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
                "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5";
-  if (!http.begin(tls, url)) return error = "Bad weather address.", false;
+  if (!http.begin(tls, url)) return error = T(S_N_WEATHER_BAD_ADDRESS), false;
   int status = http.GET();
   String body;
   bool read = status == 200 && netReadBody(http, body, 16384);
   http.end();
   if (status != 200 || !read) {
     Serial.printf("weather: request failed, %d\n", status);
-    error = status == 200 ? String("The weather service sent a reply it can't read.") : netFailText("The weather service", status);
+    error = netFailText(T(S_N_SVC_WEATHER), status == 200 ? NET_ERR_BAD_BODY : status);
     return false;
   }
 
   int current = body.indexOf("\"current\":{"), daily = body.indexOf("\"daily\":{");
   if (current < 0 || daily < 0) {
     Serial.println("weather: reply has no current or daily part");
-    return error = "The weather service sent a reply it can't read.", false;
+    return error = capFirst(TF(S_N_FAIL_UNREADABLE, T(S_N_SVC_WEATHER))), false;
   }
   Weather r = {};
   r.temp = numberAfter(body, "temperature_2m", current);
@@ -498,7 +510,7 @@ bool fetchWeather(Weather &w, String &error) {
   r.days = min(r.days, numbersAfter(body, "temperature_2m_min", daily, r.dayMin, 5));
   if (isnan(r.temp) || isnan(r.wind) || r.days == 0) {
     Serial.println("weather: reply is missing numbers");
-    return error = "The weather service sent a reply it can't read.", false;
+    return error = capFirst(TF(S_N_FAIL_UNREADABLE, T(S_N_SVC_WEATHER))), false;
   }
   // The days' own dates ("time":["2026-11-13",...]), so "Today" stays right after midnight.
   time_t now = time(nullptr);
@@ -544,7 +556,7 @@ static int valuesAfter(const String &json, const char *key, int from, float *out
 
 bool fetchHourly(long date, HourlyDay &out, String &error) {
   error = "";
-  if (!netUp() || !weatherKnowsWhere()) return error = "No WiFi.", false;
+  if (!netUp() || !weatherKnowsWhere()) return error = T(S_N_NO_WIFI), false;
   NetTls use;
   WiFiClientSecure tls;
   tls.setCACert(LETSENCRYPT_CA);  // api.open-meteo.com, as fetchWeather
@@ -558,14 +570,14 @@ bool fetchHourly(long date, HourlyDay &out, String &error) {
   String url = String("https://api.open-meteo.com/v1/forecast?latitude=") + latitude + "&longitude=" + longitude +
                "&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
                "&timezone=auto&start_date=" + day + "&end_date=" + day;
-  if (!http.begin(tls, url)) return error = "Bad weather address.", false;
+  if (!http.begin(tls, url)) return error = T(S_N_WEATHER_BAD_ADDRESS), false;
   int status = http.GET();
   String body;
   bool read = status == 200 && netReadBody(http, body, 8192);
   http.end();
   if (status != 200 || !read) {
     Serial.printf("weather: hourly for %s failed, %d\n", day, status);
-    error = status == 200 ? String("The weather service sent a reply it can't read.") : netFailText("The weather service", status);
+    error = netFailText(T(S_N_SVC_WEATHER), status == 200 ? NET_ERR_BAD_BODY : status);
     return false;
   }
   int hourly = body.indexOf("\"hourly\":{");
@@ -576,7 +588,7 @@ bool fetchHourly(long date, HourlyDay &out, String &error) {
     if (valuesAfter(body, KEYS[k], hourly, v[k + 1], 25) != n) n = 0;
   if (n < 20) {
     Serial.printf("weather: hourly reply for %s has %d hours\n", day, n);
-    return error = "The weather service sent a reply it can't read.", false;
+    return error = capFirst(TF(S_N_FAIL_UNREADABLE, T(S_N_SVC_WEATHER))), false;
   }
   HourlyDay r = {};
   r.date = date;
@@ -612,7 +624,7 @@ struct Broker {
     host = cfg::str("mqtt.host");
     String user = cfg::str("mqtt.user"), pass = cfg::str("mqtt.password");
     uint16_t port = cfg::num("mqtt.port");
-    if (!host.length()) return why = "No broker set up.", false;
+    if (!host.length()) return why = T(S_N_BROKER_NONE), false;
     Client *c = &plain;
     if (cfg::flag("mqtt.tls")) {
       netTrust(tls, true);
@@ -630,18 +642,18 @@ struct Broker {
       int e = c == &tls ? tls.lastError(err, sizeof err) : 0;
       bool slow = millis() - start >= NET_HANDSHAKE_S * 1000UL - 500;
       Serial.printf("mqtt: no connection to the broker after %lu ms%s%s\n", (unsigned long)(millis() - start), err[0] ? ": " : "", err);
-      if (c != &tls || !e) why = "Can't reach the broker.";
-      else if (slow) why = "The broker didn't answer in time.";
-      else why = "The broker's secure connection failed (check the CA, and the port).";
+      if (c != &tls || !e) why = T(S_N_BROKER_UNREACHABLE);
+      else if (slow) why = T(S_N_BROKER_SLOW);
+      else why = T(S_N_BROKER_TLS);
       return false;
     }
     if (mqtt.connect(clientId.c_str(), user.length() ? user.c_str() : nullptr, user.length() ? pass.c_str() : nullptr)) return true;
     switch (mqtt.state()) {
       case MQTT_CONNECT_BAD_CREDENTIALS:
-      case MQTT_CONNECT_UNAUTHORIZED: why = "The broker refused the login."; break;
-      case MQTT_CONNECT_UNAVAILABLE: why = "The broker is unavailable."; break;
-      case MQTT_CONNECTION_TIMEOUT: why = "The broker didn't answer in time."; break;
-      default: why = "The broker refused the connection (" + String(mqtt.state()) + ")."; break;
+      case MQTT_CONNECT_UNAUTHORIZED: why = T(S_N_BROKER_LOGIN); break;
+      case MQTT_CONNECT_UNAVAILABLE: why = T(S_N_BROKER_UNAVAILABLE); break;
+      case MQTT_CONNECTION_TIMEOUT: why = T(S_N_BROKER_SLOW); break;
+      default: why = TF(S_N_BROKER_REFUSED, mqtt.state()); break;
     }
     Serial.printf("mqtt: broker said no, state %d\n", mqtt.state());
     return false;
@@ -669,7 +681,7 @@ static void onClaude(char *topic, uint8_t *payload, unsigned int length) {
 
 bool fetchClaude(ClaudeUsage &c, String &error) {
   error = "";
-  if (!netUp() || !claudeConfigured()) return error = "No WiFi.", false;
+  if (!netUp() || !claudeConfigured()) return error = T(S_N_NO_WIFI), false;
   Broker b;
   b.mqtt.setCallback(onClaude);
   if (!b.open("sticky-" + deviceId())) {
@@ -690,7 +702,7 @@ bool fetchClaude(ClaudeUsage &c, String &error) {
   b.mqtt.disconnect();
   if (r.weekPct < 0 && r.fablePct < 0) {
     Serial.println("claude: no usage numbers on the broker");
-    return error = "The broker has no usage numbers under " + cfg::str("claude.topic") + ".", false;
+    return error = TF(S_N_BROKER_NO_USAGE, cfg::str("claude.topic").c_str()), false;
   }
   r.ok = true;
   r.fableReset = r.weekReset;
@@ -722,7 +734,7 @@ String deviceId() {
 
 bool publishTelemetry(const Metric *metrics, int count, const String &info, String &why) {
   why = "";
-  if (!netUp() || !telemetryConfigured()) return why = "No WiFi.", false;
+  if (!netUp() || !telemetryConfigured()) return why = T(S_N_NO_WIFI), false;
   Broker b;
   String id = deviceId();
   if (!b.open(id + "-sticky-telemetry", 1536)) return why = b.why, false;  // the identity record is about 1 KB
@@ -732,6 +744,6 @@ bool publishTelemetry(const Metric *metrics, int count, const String &info, Stri
   if (info.length()) ok &= b.mqtt.publish(("device/" + id + "/info").c_str(), info.c_str(), true);
   b.mqtt.loop();
   b.mqtt.disconnect();
-  if (!ok) why = "The broker took the login but not the numbers.";
+  if (!ok) why = T(S_N_BROKER_NO_NUMBERS);
   return ok;
 }

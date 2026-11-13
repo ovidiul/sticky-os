@@ -10,6 +10,7 @@ import {
   FRAME_LARGE, FRAME_SMALL, UUIDS, NAME_PREFIX, PROTOCOL, TIMEZONES, zoneForPosix, looksLikePosixTz,
   SerialTransport, SERIAL_FILTERS, WCH_VID, ESPRESSIF_VID, reconnectAfterRestart,
   wifiFromKey, wifiSetValue, normalizeKey, commitRestarts, GROUPS, KEY_INFO, icsSetValue, icsLabels, ICS_MAX, groupOf,
+  ESSENTIALS, LANGUAGES, languageName, browserLanguage,
   toGrey, resample, adjust, dither4, pack2, unpack2, cropFor, fitSize, buildPhoto, photoFile, parsePhotoHead, photoTitle, titleFromName,
   uploadPhoto, sha256Hex, toBase64, fromBase64, photoAreas, workSize, fullCrop, PHOTO_AREA, PHOTO_HEAD, PHOTO_KIND, PHOTO_THUMB,
 } from '../src/setup/app.js';
@@ -151,8 +152,8 @@ test('keys: the Sticky key list, grouped; secrets never come back', async () => 
   const raw = JSON.stringify(keys);
   assert.ok(!raw.includes('SECRET') && !raw.includes('hunter2'), 'no secret value in the key list');
   const groups = groupKeys(keys.map(normalizeKey));
-  assert.deepEqual(groups.map((g) => g.id), ['wifi', 'device', 'weather', 'voice', 'mqtt', 'claude', 'calendar', 'telemetry', 'quotes', 'games', 'update']);
-  assert.deepEqual(groups.filter((g) => !g.optional).map((g) => g.id), ['wifi', 'device', 'weather', 'voice']);
+  assert.deepEqual(groups.map((g) => g.id), ['language', 'wifi', 'device', 'weather', 'voice', 'mqtt', 'claude', 'calendar', 'telemetry', 'quotes', 'games', 'update']);
+  assert.deepEqual(groups.filter((g) => !g.optional).map((g) => g.id), ['language', 'wifi', 'device', 'weather', 'voice']);
   const voice = groups.find((g) => g.id === 'voice');
   assert.deepEqual(voice.keys.filter((k) => !isAdvanced(k)).map((k) => k.key), ['openai.api_key'], 'a first-time visitor sees only the key');
   const adv = keys.filter(isAdvanced).map((k) => k.key).sort();
@@ -161,6 +162,30 @@ test('keys: the Sticky key list, grouped; secrets never come back', async () => 
   assert.equal(keys.find((k) => k.key === 'update.auto').value, false, 'updates install by themselves only when asked to');
   // every key the mock reports has a label in the table
   for (const k of keys) assert.ok(KEY_INFO[k.key]?.label, `no label for ${k.key}`);
+});
+
+test('language: the first step, the board\'s ten choices by their own names, checked by the board', async () => {
+  const { transport, client } = rig();
+  await transport.connect();
+  const c = client();
+  const { keys } = await c.request('keys');
+  const k = keys.find((x) => x.key === 'device.language');
+  assert.deepEqual(k.options, ['en', 'es', 'pt', 'fr', 'de', 'it', 'ru', 'tr', 'pl', 'ro']);
+  assert.equal(k.value, 'en', 'English until chosen');
+  assert.equal(ESSENTIALS[0], 'device.language', 'the overview asks before WiFi');
+  assert.equal(groupOf('device.language'), 'language');
+  assert.equal(groupKeys(keys.map(normalizeKey))[0].id, 'language');
+  assert.equal(KEY_INFO['device.language'].type, 'lang');
+  for (const o of k.options) assert.ok(LANGUAGES[o] && languageName(o) !== o, `a name for ${o}`);
+  assert.equal(languageName('ro'), 'Română');
+  assert.equal(languageName('xx'), 'xx');
+  assert.equal(browserLanguage(['ro-RO', 'en-GB']), 'ro');
+  assert.equal(browserLanguage(['ja-JP', 'de-AT']), 'de');
+  assert.equal(browserLanguage(['ja-JP']), 'en');
+  assert.equal((await c.request('set', { key: 'device.language', value: 'ro' })).ok, true);
+  assert.equal((await c.request('keys')).keys.find((x) => x.key === 'device.language').value, 'ro');
+  await assert.rejects(c.request('set', { key: 'device.language', value: 'zh' }), /not a valid value/);
+  await assert.rejects(c.request('set', { key: 'device.language', value: 'RO' }), /not a valid value/);
 });
 
 test('calendar links: the value the app sends; webcal is https; bad links are refused with a reason', () => {
@@ -826,6 +851,7 @@ test('blog: pages pass the CSP, point at real files, and say the board is not Se
   const home = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
   assert.match(home, /href="blog\/"/, 'index.html: a Blog link');
 });
+
 
 // ------------------------------------------------------------------ run
 for (const [name, fn] of tests) {

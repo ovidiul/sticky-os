@@ -13,7 +13,7 @@
 enum QuoteFrom : uint8_t { QUOTE_OFFLINE, QUOTE_ZEN_TODAY, QUOTE_ZEN_RANDOM };
 
 struct Quote {
-  String text, author;  // already folded to ASCII (asciiFold) for the fonts
+  String text, author;  // already as the fonts can draw it (textFold)
   long date;            // the local date it is for (20261113); 0: none
   uint8_t from;         // QuoteFrom
 };
