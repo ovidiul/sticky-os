@@ -69,8 +69,8 @@ const AIR = [   // what the "scan" sees
 const STORE = 'sticky-demo-board-v1';
 const PHOTO_STORE = 'sticky-demo-photos-v1';
 // The board's photo store (firmware photostore.h): the same limits.
-export const PHOTO_LIMITS = { max: 100, maxBytes: 200000, chunk: 3072, reserve: 256 * 1024, idleMs: 30000, head: 96,
-  total: 20840448, landscape: [800, 436], portrait: [480, 756] };
+export const PHOTO_LIMITS = { max: 100, maxBytes: 240000, chunk: 3072, reserve: 256 * 1024, idleMs: 30000, head: 96,
+  total: 20840448, landscape: [800, 436], portrait: [480, 756], full: { landscape: [800, 480], portrait: [480, 800] } };
 const MAX_MESSAGE = 8192;
 const te = new TextEncoder();
 const td = new TextDecoder('utf-8', { fatal: true });
@@ -227,8 +227,8 @@ export class MockDevice {
       wifi: { ssid: up?.ssid || '', connected: !!up, rssi: up ? air.rssi : null },
       pending: this.dirty,
       storage: this.storageInfo(),
-      photos: { v: 1, count: this.photos.size, max: PHOTO_LIMITS.max, max_bytes: PHOTO_LIMITS.maxBytes, chunk: PHOTO_LIMITS.chunk,
-        landscape: PHOTO_LIMITS.landscape, portrait: PHOTO_LIMITS.portrait },
+      photos: { v: 2, count: this.photos.size, max: PHOTO_LIMITS.max, max_bytes: PHOTO_LIMITS.maxBytes, chunk: PHOTO_LIMITS.chunk,
+        landscape: PHOTO_LIMITS.landscape, portrait: PHOTO_LIMITS.portrait, full: PHOTO_LIMITS.full },
       keys: KEYS.filter((k) => this.isSet(this.flash.values, k)).map((k) => k.key),
     };
   }
@@ -609,13 +609,13 @@ export function mountScreen(device, parent) {
 export function parsePhoto(b) {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   if (b.length < PHOTO_LIMITS.head || td.decode(b.subarray(0, 4)) !== 'STKP') throw new Error('not a photo file');
-  if (b[4] !== 1) throw new Error('a photo file of a newer version');
+  if (b[4] !== 1 && b[4] !== 2) throw new Error('a photo file of a newer version');
   const n = b[5];
   if (n < 1 || n > 4 || v.getUint16(6, true) !== PHOTO_LIMITS.head) throw new Error('a damaged photo header');
   let off = PHOTO_LIMITS.head; const pics = [];
   for (let i = 0; i < n; i++) {
     const o = 12 + i * 8, kind = b[o], orient = b[o + 1], w = v.getUint16(o + 2, true), h = v.getUint16(o + 4, true);
-    if (kind > 2 || orient > 1 || w < 1 || h < 1 || w > 800 || h > 800) throw new Error('a damaged photo header');
+    if (kind > (b[4] >= 2 ? 3 : 2) || orient > 1 || w < 1 || h < 1 || w > 800 || h > 800) throw new Error('a damaged photo header');
     if (kind === 2 && (w > 160 || h > 160)) throw new Error('the thumbnail is too large');
     if ((kind === 0) !== (i === 0)) throw new Error('the photo must come first, once');
     const len = Math.ceil(w / 4) * h; pics.push({ kind, orient, w, h, off, len }); off += len;

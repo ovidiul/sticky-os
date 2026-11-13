@@ -31,6 +31,7 @@ static int count;
 static uint32_t gen;
 static int newest = -1;
 static int area[2][2];  // [orient][w, h]: where the Photos app draws
+static int screenW, screenH;  // the whole screen, landscape: full screen
 
 // The upload on now: one at a time, into <id>.part, renamed when it checks out.
 static struct {
@@ -72,7 +73,7 @@ static void cleanTitle(char *t) {
 // The header of a file of `size` bytes; false, with why, if it isn't one of ours.
 static bool parseHead(const uint8_t *b, uint32_t size, Head &h, const char **why) {
   if (size < HEAD || memcmp(b, "STKP", 4)) return *why = "not a photo file", false;
-  if (b[4] != 1) return *why = "a photo file of a newer version", false;
+  if (b[4] != 1 && b[4] != 2) return *why = "a photo file of a newer version", false;
   h.n = b[5];
   if (h.n < 1 || h.n > MAX_PICS || rd16(b + 6) != HEAD) return *why = "a damaged photo header", false;
   h.added = rd32(b + 8);
@@ -81,7 +82,7 @@ static bool parseHead(const uint8_t *b, uint32_t size, Head &h, const char **why
     const uint8_t *p = b + 12 + i * 8;
     Pic &c = h.pic[i];
     c.kind = p[0], c.orient = p[1], c.w = rd16(p + 2), c.h = rd16(p + 4);
-    if (c.kind > 2 || c.orient > 1 || c.w < 1 || c.h < 1 || c.w > 800 || c.h > 800) return *why = "a damaged photo header", false;
+    if (c.kind > (b[4] >= 2 ? 3 : 2) || c.orient > 1 || c.w < 1 || c.h < 1 || c.w > 800 || c.h > 800) return *why = "a damaged photo header", false;
     if (c.kind == 2 && (c.w > THUMB_MAX || c.h > THUMB_MAX)) return *why = "the thumbnail is too large", false;
     if ((c.kind == 0) != (i == 0)) return *why = "the photo must come first, once", false;
     c.off = off;
@@ -130,8 +131,9 @@ static bool validId(const String &id) {
   return true;
 }
 
-void photoStoreBegin(int landW, int landH, int portW, int portH) {
+void photoStoreBegin(int landW, int landH, int portW, int portH, int scrW, int scrH) {
   area[0][0] = landW, area[0][1] = landH, area[1][0] = portW, area[1][1] = portH;
+  screenW = scrW, screenH = scrH;
   if (!entries) entries = (PhotoEntry *)heap_caps_calloc(PHOTO_STORE_MAX, sizeof(PhotoEntry), MALLOC_CAP_SPIRAM);
   if (!chunkBuf) chunkBuf = (uint8_t *)heap_caps_malloc(PHOTO_STORE_CHUNK + 8, MALLOC_CAP_SPIRAM);
   count = 0;
@@ -188,7 +190,7 @@ void photoStoreTick() {
 
 // ---------------------------------------------------------------- drawing
 
-bool photoStoreRender(int i, uint8_t *out, int w, int h, const char **why) {
+bool photoStoreRender(int i, uint8_t *out, int w, int h, bool full, const char **why) {
   static const char *none = "";
   if (!why) why = &none;
   if (i < 0 || i >= count) return *why = "no such photo", false;
@@ -196,9 +198,16 @@ bool photoStoreRender(int i, uint8_t *out, int w, int h, const char **why) {
   if (!f) return *why = "the file is gone", false;
   Head hd;
   if (!readHead(f, hd, why)) return false;
-  int want = h > w ? 1 : 0, pick = 0;
-  for (int k = 0; k < hd.n; k++)  // the picture made for this orientation: the photo itself, else its fitted copy
-    if (hd.pic[k].kind != 2 && hd.pic[k].orient == want && (hd.pic[k].kind == 0 || hd.pic[pick].orient != want)) pick = k;
+  // The picture made for this orientation: full screen, the full-screen one
+  // if there is one; else the photo itself, else its fitted copy (one of
+  // them is this way up); a full-screen one held the other way never.
+  int want = h > w ? 1 : 0, pick = 0, best = -1;
+  for (int k = 0; k < hd.n; k++) {
+    const Pic &c = hd.pic[k];
+    if (c.kind == 2 || (c.kind == 3 && (!full || c.orient != want))) continue;
+    int score = (c.orient == want ? 4 : 0) + (c.kind == 3 ? 2 : c.kind == 0 ? 1 : 0);
+    if (score > best) best = score, pick = k;
+  }
   const Pic &p = hd.pic[pick];
   uint8_t *px = (uint8_t *)heap_caps_malloc(p.len, MALLOC_CAP_SPIRAM);
   if (!px) return *why = "out of memory", false;
@@ -236,9 +245,10 @@ static String entryJson(const PhotoEntry &e) {
 
 void photoStoreInfo(String &s) {
   s += ",\"storage\":" + storageJson();
-  s += String(",\"photos\":{\"v\":1,\"count\":") + count + ",\"max\":" + PHOTO_STORE_MAX + ",\"max_bytes\":" +
+  s += String(",\"photos\":{\"v\":2,\"count\":") + count + ",\"max\":" + PHOTO_STORE_MAX + ",\"max_bytes\":" +
        PHOTO_STORE_MAX_BYTES + ",\"chunk\":" + PHOTO_STORE_CHUNK + ",\"landscape\":[" + area[0][0] + "," + area[0][1] +
-       "],\"portrait\":[" + area[1][0] + "," + area[1][1] + "]}";
+       "],\"portrait\":[" + area[1][0] + "," + area[1][1] + "],\"full\":{\"landscape\":[" + screenW + "," + screenH +
+       "],\"portrait\":[" + screenH + "," + screenW + "]}}";
 }
 
 static bool fail(String &rest, const String &why) {

@@ -29,6 +29,8 @@
 //   tap a task           tick or untick it
 //   Weather: tap a day   its hours: a chart (landscape), a list (portrait); sideways the next day
 //   Quote                today's from ZenQuotes (or the board's list); OK or New quote: another
+//   Photos, Quote        double-tap the picture / the words: full screen (no status bar, no
+//                        buttons); double-tap again to come back. Kept per app
 //   Recipes              say or type a dish, the AI writes it; tick ingredients, swipe the pages
 //   Games                a folder: 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure,
 //                        X and O (games.ino); UP / DOWN move a ring, OK presses it
@@ -62,6 +64,8 @@
 #include <Fonts/FreeSerifItalic12pt7b.h>
 #include <Fonts/FreeSerifItalic18pt7b.h>
 #include <Fonts/FreeSerifItalic24pt7b.h>
+#include "src/fonts/FreeSerifItalic32pt7b.h"  // the Quote app's full screen
+#include "src/fonts/FreeSerifItalic40pt7b.h"
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -181,6 +185,8 @@ struct Settings {
   int sleepChoice = 0;      // index into SLEEP_MINUTES; on battery only
   uint32_t hidden = 0;      // apps left off the home screen, one bit each
   uint32_t gamesHidden = 0; // games left out of the Games folder, one bit each (GameId)
+  uint32_t fullScreen = 0;  // apps shown full screen (a double tap in Photos or Quote), one bit each
+  bool fullTried = false;   // full screen has been used once: Quote's hint stops showing
 };
 static Settings settings;
 static Preferences prefs;
@@ -254,6 +260,11 @@ static int quickFrom = SCREEN_HOME;
 static bool demoMode;               // screenshots: made-up events, notes, town and network (serial "demo on")  // where the quick settings go back to
 static int settingsPage;             // Settings' main list, or one of its option pages
 static int listPage;                 // the page of a long list (Settings, About) on screen
+// Photos and Quote: a double tap turns full screen on and off (contentTap()).
+static const uint32_t DTAP_MS = 350;
+static const int DTAP_PX = 40;
+static struct { bool on; int x, y; uint32_t at; } tapWait;  // a tap held back: it may be the first of two
+static uint32_t touchDownAt;  // millis() when the finger last went down (a serial tap: when it came)
 
 // Bluetooth setup mode (Settings -> Connect to the setup app): the board
 // restarted into it, and only the setup screen runs -- no WiFi, no network
@@ -390,9 +401,10 @@ static void show(bool full) {
                 (unsigned long)(millis() - t), esp_err_to_name(err));
 }
 
-// Shows the canvas with `photo` (BODY_H rows of four-grey pixels) under the
-// status bar, using the panel's slower four-grey refresh.
-static void showGrey(const uint8_t *photo) {
+// Shows the canvas with `photo` (H - top rows of four-grey pixels) from row
+// `top` down: under the status bar (BODY_Y), or the whole screen (0, full
+// screen). The panel's slower four-grey refresh.
+static void showGrey(const uint8_t *photo, int top) {
   if (!panel) return;
   uint32_t t = millis();
   const uint8_t *mono = canvas->getBuffer();
@@ -403,9 +415,9 @@ static void showGrey(const uint8_t *photo) {
       for (int i = 0; i < 4; i++) out |= (bits >> (3 - i) & 1 ? 3 : 0) << ((3 - i) * 2);
       grey[y * (NW / 4) + x] = out;
     }
-  for (int ly = 0; ly < BODY_H; ly++)  // each photo pixel goes where the turned picture puts it
+  for (int ly = 0; ly < H - top; ly++)  // each photo pixel goes where the turned picture puts it
     for (int lx = 0; lx < W; lx++) {
-      int level = photo[ly * (W / 4) + lx / 4] >> ((3 - (lx & 3)) * 2) & 3, sy = ly + BODY_Y, nx, ny;
+      int level = photo[ly * (W / 4) + lx / 4] >> ((3 - (lx & 3)) * 2) & 3, sy = ly + top, nx, ny;
       switch (rotation) {
         case 1: nx = NW - 1 - sy, ny = lx; break;
         case 2: nx = NW - 1 - lx, ny = NH - 1 - sy; break;
@@ -603,6 +615,8 @@ static void settingsLoad() {
   settings.sleepChoice = constrain(prefs.getInt("sleep", 0), 0, 2);
   settings.hidden = prefs.getUInt("hidden", 0) & ~(1u << APP_SETTINGS);
   settings.gamesHidden = prefs.getUInt("ghidden", 0);
+  settings.fullScreen = prefs.getUInt("full", 0) & (1u << APP_PHOTOS | 1u << APP_QUOTE);
+  settings.fullTried = prefs.getBool("fulltried", false);
 }
 
 static void settingsSave() {
@@ -612,6 +626,8 @@ static void settingsSave() {
   prefs.putInt("sleep", settings.sleepChoice);
   prefs.putUInt("hidden", settings.hidden);
   prefs.putUInt("ghidden", settings.gamesHidden);
+  prefs.putUInt("full", settings.fullScreen);
+  prefs.putBool("fulltried", settings.fullTried);
 }
 
 static float shownTemp(float celsius) { return settings.fahrenheit ? celsius * 9 / 5 + 32 : celsius; }
@@ -762,6 +778,15 @@ static void hourglassIcon(int x, int y) {  // 14 x 20
 
 static String fitted(const GFXfont *font, String s, int width);
 static int timerSecondsLeft() { return timerRunning ? max(0L, ((long)(timerRingsAt - millis()) + 999) / 1000) : 0; }
+
+// Full screen: Photos and Quote, after a double tap on the picture or the
+// words, leave out the status bar and their buttons; another double tap
+// brings them back. Kept per app (settings.fullScreen). Home is still a
+// swipe up from the bottom edge, or UP and DOWN together.
+static bool fullScreenApp(int a) { return a == APP_PHOTOS || a == APP_QUOTE; }
+static bool fullScreenOn() {
+  return screen == SCREEN_APP && fullScreenApp(app) && (settings.fullScreen >> app & 1) && !setupMode && !updScreen && !revertNotice;
+}
 
 // Inside an app: the house (tap the bar to go home), the time and the app's
 // name. Card, Bluetooth, WiFi, USB power and battery on the right. A running
@@ -3174,6 +3199,7 @@ static void drawHome() {
 }
 
 static void goHome() {
+  tapWait.on = false;
   screen = SCREEN_HOME;
   noteOpen = -1;
   notesTyping = false;
@@ -3597,62 +3623,91 @@ static void quoteMarks(int x, int y, int r, uint16_t c) {  // the pair, the firs
 static int quoteButtonX, quoteButtonY, quoteButtonW;
 static const int QUOTE_BUTTON_H = 58;
 
+static const char *const ZENQUOTES_CREDIT = "Inspirational quotes provided by ZenQuotes API, zenquotes.io";
+
+// Normal: the heading, the words, the author, then where it's from and New
+// quote. Full screen (a double tap): only the words, larger (up to 40 pt),
+// and the author; a quote from ZenQuotes keeps its credit, small, at the foot
+// (their free API asks for it).
 static void drawQuote() {
   quoteRefresh();
   const Quote &q = quoteNow;
+  bool full = fullScreenOn();
   char line[64];
-  // The foot: where it's from (the attribution ZenQuotes asks for), and the button.
-  quoteButtonW = TALL ? W - 48 : 220;
-  quoteButtonX = TALL ? 24 : W - quoteButtonW - 24;
-  quoteButtonY = H - QUOTE_BUTTON_H - 16;
-  pillButton(quoteButtonX, quoteButtonY, quoteButtonW, QUOTE_BUTTON_H, quoteFetching ? "Fetching..." : "New quote", !quoteFetching, &FreeSansBold12pt7b);
-  String source = q.from == QUOTE_OFFLINE ? String("From the board's own list of public-domain quotes.") + (quoteNote.length() ? " " + quoteNote : String())
-                                          : String("Inspirational quotes provided by ZenQuotes API, zenquotes.io");
-  int footW = TALL ? W - 48 : quoteButtonX - 48, footY = TALL ? quoteButtonY - 14 : quoteButtonY + 22;
-  std::vector<String> foot = wrapped(&FreeSans9pt7b, source, footW);
-  if (quoteNote.length() && q.from != QUOTE_OFFLINE)
-    for (const String &l : wrapped(&FreeSans9pt7b, quoteNote, footW)) foot.push_back(l);
-  if (foot.size() > 3) foot.resize(3);
-  if (TALL) footY -= (foot.size() - 1) * 22;
-  else if (foot.size() > 2) footY -= 12;
-  for (size_t i = 0; i < foot.size(); i++) text(24, footY + i * 22, &FreeSans9pt7b, foot[i].c_str());
-  int bottom = (TALL ? footY - 22 : quoteButtonY) - 18;
-  canvas->drawFastHLine(24, bottom + 6, W - 48, INK);
+  int bottom, top;
+  if (full) {
+    quoteButtonX = quoteButtonY = 10000, quoteButtonW = 0;  // no button to tap
+    bottom = H - 24;
+    if (q.from != QUOTE_OFFLINE) {
+      std::vector<String> foot = wrapped(&FreeSans9pt7b, ZENQUOTES_CREDIT, W - 48);
+      for (size_t i = 0; i < foot.size(); i++) textCentre(W / 2, H - 14 - (foot.size() - 1 - i) * 20, &FreeSans9pt7b, foot[i].c_str());
+      bottom = H - 14 - foot.size() * 20 - 16;
+    }
+    top = TALL ? 40 : 24;
+  } else {
+    // The foot: where it's from (the attribution ZenQuotes asks for), and the button.
+    quoteButtonW = TALL ? W - 48 : 220;
+    quoteButtonX = TALL ? 24 : W - quoteButtonW - 24;
+    quoteButtonY = H - QUOTE_BUTTON_H - 16;
+    pillButton(quoteButtonX, quoteButtonY, quoteButtonW, QUOTE_BUTTON_H, quoteFetching ? "Fetching..." : "New quote", !quoteFetching, &FreeSansBold12pt7b);
+    String source = q.from == QUOTE_OFFLINE ? String("From the board's own list of public-domain quotes.") + (quoteNote.length() ? " " + quoteNote : String())
+                                            : String(ZENQUOTES_CREDIT);
+    int footW = TALL ? W - 48 : quoteButtonX - 48, footY = TALL ? quoteButtonY - 14 : quoteButtonY + 22;
+    std::vector<String> foot = wrapped(&FreeSans9pt7b, source, footW);
+    if (quoteNote.length() && q.from != QUOTE_OFFLINE)
+      for (const String &l : wrapped(&FreeSans9pt7b, quoteNote, footW)) foot.push_back(l);
+    if (!settings.fullTried && foot.size() < 3) foot.push_back("Double-tap the quote for full screen.");  // until it's been used once
+    if (foot.size() > 3) foot.resize(3);
+    if (TALL) footY -= (foot.size() - 1) * 22;
+    else if (foot.size() > 2) footY -= 12;
+    for (size_t i = 0; i < foot.size(); i++) text(24, footY + i * 22, &FreeSans9pt7b, foot[i].c_str());
+    bottom = (TALL ? footY - 22 : quoteButtonY) - 18;
+    canvas->drawFastHLine(24, bottom + 6, W - 48, INK);
 
-  // The heading: what this is, and the day.
-  time_t t = time(nullptr);
-  if (quoteNowToday && timeKnown()) strftime(line, sizeof line, "QUOTE OF THE DAY   %A %e %B", localtime(&t));
-  else strlcpy(line, quoteNowToday ? "QUOTE OF THE DAY" : "ANOTHER QUOTE", sizeof line);
-  text(24, BODY_Y + 34, &FreeSansBold9pt7b, line);
-
-  // The words, as large as fits: serif italic, from 24 pt down; the author under them.
-  int r = TALL ? 13 : 16, markX = 24 + r, left = TALL ? 28 : 34 + r * 5, top = BODY_Y + 56 + (TALL ? 2 * r + 30 : 0);
-  int width = W - left - (TALL ? 28 : 40), area = bottom - top;
-  const GFXfont *fonts[] = {&FreeSerifItalic24pt7b, &FreeSerifItalic18pt7b, &FreeSerifItalic12pt7b, &FreeSerifItalic9pt7b};
-  const int lineH[] = {54, 42, 31, 24};
-  const GFXfont *authorFont = &FreeSansBold12pt7b;
-  int f = 0;
-  std::vector<String> lines;
-  for (; f < 4; f++) {
-    lines = wrapped(fonts[f], q.text, width);
-    if ((int)lines.size() * lineH[f] + 56 <= area) break;
+    // The heading: what this is, and the day.
+    time_t t = time(nullptr);
+    if (quoteNowToday && timeKnown()) strftime(line, sizeof line, "QUOTE OF THE DAY   %A %e %B", localtime(&t));
+    else strlcpy(line, quoteNowToday ? "QUOTE OF THE DAY" : "ANOTHER QUOTE", sizeof line);
+    text(24, BODY_Y + 34, &FreeSansBold9pt7b, line);
+    top = BODY_Y + 56;
   }
-  if (f == 4) f = 3;
-  int maxLines = max(1, (area - 56) / lineH[f]);
-  int shown = min((int)lines.size(), maxLines), blockH = shown * lineH[f] + 56;
+
+  // The words, as large as fits: serif italic, from 24 pt down (full screen 40); the author under them.
+  int r = full ? (TALL ? 16 : 20) : TALL ? 13 : 16, markX = 24 + r, left = TALL ? 28 : 34 + r * 5;
+  top += TALL ? 2 * r + 30 : 0;
+  int width = W - left - (TALL ? 28 : 40), area = bottom - top;
+  static const GFXfont *const fonts[] = {&FreeSerifItalic40pt7b, &FreeSerifItalic32pt7b, &FreeSerifItalic24pt7b,
+                                         &FreeSerifItalic18pt7b, &FreeSerifItalic12pt7b, &FreeSerifItalic9pt7b};
+  static const int lineHs[] = {90, 72, 54, 42, 31, 24};
+  const int first = full ? 0 : 2, n = 6;
+  const GFXfont *authorFont = full ? &FreeSansBold18pt7b : &FreeSansBold12pt7b;
+  const int authorH = full ? 72 : 56;  // the gap and the author's line under the words
+  int f = first;
+  std::vector<String> lines;
+  for (; f < n; f++) {
+    lines = wrapped(fonts[f], q.text, width);
+    if ((int)lines.size() * lineHs[f] + authorH <= area) break;
+  }
+  if (f == n) f = n - 1;
+  int lineH = lineHs[f];
+  int maxLines = max(1, (area - authorH) / lineH);
+  int shown = min((int)lines.size(), maxLines), blockH = shown * lineH + authorH;
   int y = top + max(0, (area - blockH) / 2);  // centred in the space there is
-  quoteMarks(markX, TALL ? y - r : y + lineH[f] / 2 + r / 2, r, INK);  // portrait: just above the words
+  quoteMarks(markX, TALL ? y - r : y + lineH / 2 + r / 2, r, INK);  // portrait: just above the words
   for (int i = 0; i < shown; i++) {
     String s = i == shown - 1 && shown < (int)lines.size() ? fitted(fonts[f], lines[i] + "...", width) : lines[i];
-    text(left, y + (i + 1) * lineH[f] - lineH[f] / 4, fonts[f], s.c_str());
+    text(left, y + (i + 1) * lineH - lineH / 4, fonts[f], s.c_str());
   }
-  int ay = y + shown * lineH[f] + 36;
-  canvas->fillRect(left, ay - 9, 28, 3, INK);
-  text(left + 40, ay, authorFont, fitted(authorFont, q.author, width - 40).c_str());
+  int ay = y + shown * lineH + authorH - 20;
+  canvas->fillRect(left, ay - (full ? 12 : 9), full ? 36 : 28, 3, INK);
+  text(left + (full ? 52 : 40), ay, authorFont, fitted(authorFont, q.author, width - (full ? 52 : 40)).c_str());
 }
 
+static bool onQuoteButton(int x, int y) {
+  return y >= quoteButtonY - 8 && x >= quoteButtonX - 8 && x < quoteButtonX + quoteButtonW + 8;
+}
 static void quoteTap(int x, int y) {
-  if (y >= quoteButtonY - 8 && x >= quoteButtonX - 8 && x < quoteButtonX + quoteButtonW + 8) quoteNew();
+  if (onQuoteButton(x, y)) quoteNew();
 }
 
 // ---------------------------------------------------------------- weather, hour by hour
@@ -4522,7 +4577,8 @@ static void render(bool full) {
   canvas->fillScreen(PAPER);
   canvas->setTextColor(INK);
   canvas->setTextSize(1);
-  drawBar();
+  bool fs = fullScreenOn();
+  if (!fs) drawBar();
   if (updScreen) {
     drawUpdating();
     show(full);
@@ -4569,6 +4625,7 @@ static void render(bool full) {
       if (!photosReady) photosReady = photosMount();
       int total = photoTotal(), onBoard = photoStoreCount();
       if (!total) {
+        if (fs) drawBar();  // nothing to show full screen
         drawSetupCard("No photos yet", {"Send photos to the board from the setup app: plug in the USB cable, open it in Chrome or Edge on a computer, and choose Photos.", "",
                                         photosCardIn() ? "Or put JPEG files in a folder named photos on the microSD card." : "Or put JPEG files in a folder named photos on a microSD card."});
         break;
@@ -4577,22 +4634,24 @@ static void render(bool full) {
       char name[64];
       const char *why = "";
       uint32_t t = millis();
-      if (!photoBuffer) photoBuffer = (uint8_t *)heap_caps_malloc(NW / 4 * NW, MALLOC_CAP_SPIRAM);  // room for either way up
+      if (!photoBuffer) photoBuffer = (uint8_t *)heap_caps_malloc(NW / 4 * NW, MALLOC_CAP_SPIRAM);  // room for either way up, full screen too
       bool drawn = false;
+      int top = fs ? 0 : BODY_Y;  // full screen: the whole of it, no status bar
       if (photoBuffer && photoIndex < onBoard) {
         strlcpy(name, photoStoreAt(photoIndex)->title[0] ? photoStoreAt(photoIndex)->title : photoStoreAt(photoIndex)->id, sizeof name);
-        drawn = photoStoreRender(photoIndex, photoBuffer, W, BODY_H, &why);
+        drawn = photoStoreRender(photoIndex, photoBuffer, W, H - top, fs, &why);
       } else if (photoBuffer) {
-        drawn = photoRender(photoIndex - onBoard, photoBuffer, W, BODY_H, name, sizeof name, &why);
+        drawn = photoRender(photoIndex - onBoard, photoBuffer, W, H - top, name, sizeof name, &why);
       } else {
         strlcpy(name, "", sizeof name), why = "out of memory";
       }
       if (drawn) {
-        Serial.printf("photos: %s drawn in %lu ms\n", name, (unsigned long)(millis() - t));
-        drawBar();  // the count may have changed
-        showGrey(photoBuffer);
+        Serial.printf("photos: %s drawn%s in %lu ms\n", name, fs ? " full screen" : "", (unsigned long)(millis() - t));
+        if (!fs) drawBar();  // the count may have changed
+        showGrey(photoBuffer, top);
         return;
       }
+      if (fs) drawBar();
       Serial.printf("photos: %s: %s\n", name, why);
       textCentre(W / 2, H / 2 - 10, &FreeSansBold18pt7b, "Can't show this photo");
       textCentre(W / 2, H / 2 + 40, &FreeSans12pt7b, name);
@@ -5205,6 +5264,7 @@ static void moveBy(int move) {
 }
 
 static void openApp(int next) {
+  tapWait.on = false;
   screen = SCREEN_APP;
   noteOpen = -1;
   notesTyping = false;
@@ -5227,6 +5287,7 @@ static void openApp(int next) {
 // and down scroll; in an app sideways changes app and up is the app's action.
 static void swipe(int x0, int y0, int dx, int dy) {
   Serial.printf("touch: swipe from %d, %d by %d, %d\n", x0, y0, dx, dy);
+  tapWait.on = false;  // a tap and then a swipe: the swipe is what was meant
   if (setupMode || screen == SCREEN_WELCOME) return;
   bool vertical = abs(dy) > abs(dx);
   if (screen == SCREEN_QUICK) {
@@ -5332,13 +5393,44 @@ static void action() {  // OK, or a tap in the middle of the screen
   render(true);
 }
 
+// A double tap on the picture or the words in Photos and Quote: two taps
+// within DTAP_MS (the first lifted, the second down) and DTAP_PX of each
+// other. A single tap there waits that long for a second before it acts
+// (Photos: the next photo); a tap on a button acts at once.
+
+static void toggleFullScreen() {
+  tapWait.on = false;
+  settings.fullScreen ^= 1u << app;
+  settings.fullTried = true;
+  prefs.putUInt("full", settings.fullScreen);  // on the loop task, as every flash write
+  prefs.putBool("fulltried", true);
+  Serial.printf("app: %s full screen %s\n", APP_NAMES[app], settings.fullScreen >> app & 1 ? "on" : "off");
+  render(true);  // one redraw, a clean one
+}
+
+// The single tap held back, now that no second came.
+static void tapWaitFire() {
+  tapWait.on = false;
+  if (screen == SCREEN_APP && app == APP_PHOTOS) action();  // the next photo; Quote's words do nothing alone
+}
+
+// A tap on Photos' or Quote's content: the first of a double tap, or the second.
+static void contentTap(int x, int y) {
+  if (tapWait.on && touchDownAt - tapWait.at <= DTAP_MS && abs(x - tapWait.x) <= DTAP_PX && abs(y - tapWait.y) <= DTAP_PX)
+    return toggleFullScreen();
+  if (tapWait.on) tapWaitFire();  // too late or too far for a pair: the first is a tap of its own
+  tapWait.on = true, tapWait.x = x, tapWait.y = y, tapWait.at = millis();
+}
+
 static void tap(int x, int y) {
   if (setupMode) return setupTap(x, y);
   if (revertNotice) return dismissRevertNotice();
   if (screen == SCREEN_WELCOME) return welcomeTap(x, y);
   if (screen == SCREEN_QUICK) return quickTap(x, y);
   if (screen == SCREEN_HOME) return homeTap(x, y);
-  if (y < BAR_H + 10) return goHome();  // the status bar, with its house: home
+  bool full = fullScreenOn();
+  if (y < BAR_H + 10 && !full) return goHome();  // the status bar, with its house: home (full screen has none)
+  if (fullScreenApp(app) && !(app == APP_QUOTE && !full && onQuoteButton(x, y))) return contentTap(x, y);
   if (app == APP_TIMER) return timerTap(x, y);
   if (app == APP_SETTINGS && wifiTyping) return wifiTypeResult(keyboardTap(wifiKb, x, y));
   if (app == APP_SETTINGS && wifiJoining) return;
@@ -5653,9 +5745,16 @@ static void devCommands() {
         if (next < 0) break;
       }
       swipe(v[0], v[1], v[2], v[3]);
-    } else if (line.startsWith("tap ")) {
-      int space = line.indexOf(' ', 4);
-      if (space > 0) tap(line.substring(4, space).toInt(), line.substring(space + 1).toInt());
+    } else if (line.startsWith("tap ") || line.startsWith("dtap ")) {  // tap <x> <y>; dtap <x> <y>: a double tap
+      bool twice = line[0] == 'd';
+      int at = twice ? 5 : 4, space = line.indexOf(' ', at);
+      for (int i = 0; space > 0 && i < (twice ? 2 : 1); i++) {
+        touchDownAt = millis();
+        tap(line.substring(at, space).toInt(), line.substring(space + 1).toInt());
+      }
+    } else if (line == "full") {  // which apps are full screen
+      Serial.printf("full: photos %s, quote %s, on screen %s\n", settings.fullScreen >> APP_PHOTOS & 1 ? "on" : "off",
+                    settings.fullScreen >> APP_QUOTE & 1 ? "on" : "off", fullScreenOn() ? "yes" : "no");
     }
     line = "";
   }
@@ -5711,7 +5810,7 @@ void setup() {
   gamesBegin();
   gamesUiBegin();
   hourlyCache = (HourlyDay *)heap_caps_calloc(HOURLY_DAYS, sizeof(HourlyDay), MALLOC_CAP_SPIRAM);
-  photoStoreBegin(NW, NH - BAR_H, NH, NW - BAR_H);  // the Photos app's area, landscape and portrait
+  photoStoreBegin(NW, NH - BAR_H, NH, NW - BAR_H, NW, NH);  // the Photos app's area, landscape and portrait; full screen
   netBegin();  // before the network task: what both tasks read is loaded once, here
   if (cfg::reverted()) prefs.putBool("revnote", true);  // shown until it's dismissed, across restarts
   revertNotice = prefs.getBool("revnote", false) && !setupMode;
@@ -5823,6 +5922,7 @@ void loop() {
       touchToScreen(points[0], lastX, lastY);
       if (!wasTouching) {
         downX = lastX, downY = lastY;
+        touchDownAt = millis();
         touchDowns++;
         Serial.printf("touch: down at %d, %d (sensor %u, %u)\n", lastX, lastY, points[0].x, points[0].y);
       }
@@ -5831,7 +5931,8 @@ void loop() {
     } else if (wasTouching && (count == 0 || millis() - lastSeen > 150)) {  // 0: lifted; kNoUpdate: no new report yet
       wasTouching = false;
       int dx = lastX - downX, dy = lastY - downY;
-      if (millis() - lastTap > (keyboardShown ? 60u : 300u)) {  // typing: taps come fast
+      bool quick = keyboardShown || (screen == SCREEN_APP && fullScreenApp(app));  // typing, a double tap: taps come fast
+      if (millis() - lastTap > (quick ? 60u : 300u)) {
         lastTap = millis();
         if (abs(dx) > 70 || abs(dy) > 70) swipe(downX, downY, dx, dy);
         else {
@@ -5841,6 +5942,8 @@ void loop() {
       }
     }
   }
+  // A tap held back for a second one that didn't come (none down since, in time): it acts now.
+  if (tapWait.on && millis() - tapWait.at > DTAP_MS && !(wasTouching && touchDownAt - tapWait.at <= DTAP_MS)) tapWaitFire();
 
   bool ok = digitalRead(PIN_BTN_OK) == LOW, up = digitalRead(PIN_BTN_UP) == LOW,
        down = digitalRead(PIN_BTN_DOWN) == LOW;

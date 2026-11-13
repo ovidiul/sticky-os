@@ -25,7 +25,8 @@ without touching the board:
 |---|---|
 | `app <n>` | open app n (0 Clock, 1 Weather, 2 Calendar, 3 Notes, 4 Timer, 5 Photos, 6 Claude, 7 Settings, 8 About, 9 Quote, 10 Recipes, 11 Games). The numbers stay put (Settings keeps hidden apps as a bit each); `APP_ORDER` sets the home screen's order |
 | `home`, `quick`, `ok`, `move <n>` | home screen, quick settings, the OK button, UP / DOWN |
-| `tap <x> <y>`, `swipe <x0> <y0> <dx> <dy>` | touch, in the picture's own coordinates |
+| `tap <x> <y>`, `dtap <x> <y>`, `swipe <x0> <y0> <dx> <dy>` | touch, in the picture's own coordinates; `dtap` a double tap (Photos and Quote: full screen on or off). In Photos and Quote a single tap acts 0.35 s later, once no second one came |
+| `full` | which apps are full screen: `full: photos on/off, quote on/off, on screen yes/no` |
 | `turn <0-4>` | rotation: 0 automatic, 1 landscape, 2 landscape flipped, 3 portrait, 4 portrait flipped |
 | `demo on` / `demo off` | made-up events, notes, town and network, for screenshots |
 | `shot` | the screen as drawn, as hex: `SHOT 800 480 <rotation>`, 480 rows, `END` |

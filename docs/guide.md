@@ -185,7 +185,9 @@ rotation (turns with the board, or locked the way it is now), sound, WiFi
 now, and all settings. A filled tile is on. Swipe up or press OK to close.
 
 **Going home** from an app: tap the status bar (a house shows at its left),
-swipe up from the bottom edge, or press UP and DOWN together briefly.
+swipe up from the bottom edge, or press UP and DOWN together briefly. In
+full screen (Photos and Quote, see below) there is no status bar to tap;
+the swipe up from the bottom edge and UP + DOWN still go home.
 
 ## The apps
 
@@ -201,8 +203,8 @@ timer adds an hourglass and its minutes left when there is room.
 | Calendar | Read only, made to be read from across the room. A black card on top: the event on now (until when, time left, what's next today), or what's next ("Free until 14:00", "in 25 min"; "Nothing else today" and tomorrow's first event in the evening). Under it the week, Monday first, today in a black circle and a dot under days with events still to come. Then the agenda: a heading for each day with that day's forecast high / low (five days), a row for each event (start time and title; a bar marks one that's on now), and "Nothing else today" at the end of today. Events are added on the phone | Your calendars' secret iCal links (`calendar.ics`, up to three: Google, iCloud, Outlook...; see [Calendar links](#calendar-links)), and measurement `calendar` in your InfluxDB bucket if you set one up (see `influx.h` for what writes it); the forecast from Weather |
 | Notes | Tasks with tick boxes, notes, and the AI's last line | Kept in the board's flash; changed by voice or by typing on the on-screen keyboard |
 | Timer | A countdown in large digits: 1, 3, 5, 10, 25 minutes or an hour; +1 and +5 minutes and Stop while it runs | The board. It rings even with button sounds off, and opens itself when the time is up. The board doesn't sleep while it runs |
-| Photos | Two albums, one after the other: the board's own photos, then the microSD card's JPEGs, in four greys, a new one every 10 minutes. The status bar says which album and where in it ("Board photos 2 / 5"). With none, it says how to add some | Photos sent from the setup app, kept in the board's flash (up to 100); the card's `photos` folder (baseline JPEG; progressive ones are refused) |
-| Quote | Quote of the Day in large serif italic, the author under it; a long quote wraps and gets smaller type. It changes at local midnight. *New quote* (or OK) shows another | Today's quote from ZenQuotes (`zenquotes.io/api/today`, free, no key), fetched once a day and kept in the board's flash (`/quote.txt`), so it shows offline too; *New quote* asks `/api/random`. Its quotes show ZenQuotes' attribution, as its free API asks. Without WiFi, with `quotes.online` off, or when ZenQuotes asks for a pause (it allows 5 requests in 30 s; the board waits 7 s between them), a quote comes from the board's own list of 54 public-domain quotes, and a quiet line under it says so |
+| Photos | Two albums, one after the other: the board's own photos, then the microSD card's JPEGs, in four greys, a new one every 10 minutes. The status bar says which album and where in it ("Board photos 2 / 5"). With none, it says how to add some. Double-tap the photo for full screen: the photo edge to edge, no status bar; double-tap again to bring it back | Photos sent from the setup app, kept in the board's flash (up to 100); the card's `photos` folder (baseline JPEG; progressive ones are refused) |
+| Quote | Quote of the Day in large serif italic, the author under it; a long quote wraps and gets smaller type. It changes at local midnight. *New quote* (or OK) shows another. Double-tap the quote for full screen: only the words, larger (up to 40 pt, still smaller for a long one), and the author, with ZenQuotes' credit in small type at the foot when it's theirs; double-tap again to bring back the heading and the button | Today's quote from ZenQuotes (`zenquotes.io/api/today`, free, no key), fetched once a day and kept in the board's flash (`/quote.txt`), so it shows offline too; *New quote* asks `/api/random`. Its quotes show ZenQuotes' attribution, as its free API asks. Without WiFi, with `quotes.online` off, or when ZenQuotes asks for a pause (it allows 5 requests in 30 s; the board waits 7 s between them), a quote comes from the board's own list of 54 public-domain quotes, and a quiet line under it says so |
 | Recipes | Say what you'd like to cook ("a quick vegetarian pasta for two") or type it, and the AI writes a recipe: the title, the time and how many it serves, the ingredients with tick boxes (tap one while you cook; the ticks last until another recipe is opened), the numbered steps, tips. Large type, a page at a time. Saved recipes are a list, newest first; *Delete* (tap twice) | Speech to text as for Notes (OpenAI or your relay), then the model in `notes.ai_model` answers as strict JSON (OpenAI structured outputs). The board reads it defensively (code fences and words around it, trailing commas, numbers as text, ingredients as plain strings, all capped and folded to ASCII) and keeps up to 30 in its flash (`/recipes/`; the 31st replaces the oldest). Failures say why: *AI key rejected: it's expired or wrong*, *The AI's recipe came back garbled. Try again.* |
 | Games | A folder of seven games (see Games below): 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, X and O | The board; Quiz and Adventure also the model in `notes.ai_model` when there's a key, WiFi and `games.ai` is on. Progress in the board's flash (`/games.txt`, `/games-practice.txt`) |
 | Claude | This week's Claude Code usage, all models and Fable alone, with reset times | Retained numbers under `claude.topic` on your MQTT broker: `…/seven_day/percent`, `…/seven_day/resets_at_unix`, `…/weekly_scoped/percent`, `…/age_seconds` |
@@ -214,13 +216,25 @@ Controls inside an app:
 - **UP / DOWN**, or a swipe left / right: previous or next app (hidden apps
   are skipped). Not in Games: there they move a ring through the games and
   buttons, and a game keeps its swipes.
-- **Tap the status bar:** home.
+- **Tap the status bar:** home (in full screen there is none: swipe up from the bottom edge, or UP and DOWN together).
 - **Settings and About** are longer than the screen: swipe up for the next
   page, down for the one before (the foot of the screen says "2 / 3"). OK
   also turns the page; on a page of choices in Settings, OK goes back.
 - **OK**, a tap, or a swipe up: the app's action (next photo, next page, or fetch again and redraw).
 - **Photos:** OK, a tap or a swipe up for the next photo, a swipe down for
-  the one before.
+  the one before. A tap waits about a third of a second before it acts, in
+  case a second tap follows.
+- **Full screen (Photos and Quote):** double-tap the photo or the quote (two
+  taps close together, in about the same place; not on a button) and the app
+  takes the whole screen: no status bar, no buttons. Double-tap again to
+  bring them back. Each app remembers it, across other apps and restarts. In
+  full screen OK, the swipes and UP / DOWN work as before; home is a swipe up
+  from the bottom edge, or UP and DOWN together. A photo sent from the setup
+  app before full screen came, or to an older firmware, has no full-screen
+  copy: it shows as before, centred, with a little more white above and
+  below. A microSD photo is drawn for the whole screen. Until full screen
+  has been used once, Quote's foot says *Double-tap the quote for full
+  screen.*
 - **Turn the board:** the picture follows (landscape or portrait, either way
   up). Settings can fix it to one. The motion sensor's axes are set in
   `settings.h`.
@@ -232,8 +246,8 @@ Controls inside an app:
   reached, what was said is kept as a note.
 - **Weather:** tap a day for its hours (see the table). In portrait, swipe
   up / down for later and earlier hours.
-- **Quote:** *New quote*, OK or a swipe up for another; opening the app shows
-  the day's quote again.
+- **Quote:** *New quote*, OK or a swipe up for another (in full screen, OK or
+  a swipe up); opening the app shows the day's quote again.
 - **Recipes:** *Say a dish* (tap, speak, tap again; or hold OK in the list,
   speak, let go) or *Type it* (the keyboard, its microphone dictates). While
   the AI writes, the line says *Writing a recipe... tap here to cancel* (OK
@@ -316,6 +330,12 @@ microSD card. Pick photos (or drop them on the page), and for each:
 - **Made for the board held** landscape or portrait. Held the other way,
   the board shows the same crop whole, smaller, with white above and below
   (the page makes that copy too, so the board never scales anything).
+- **Full screen:** the page also makes a copy for the whole screen (800 x
+  480, or 480 x 800 for portrait), for when you double-tap the photo on the
+  board: the frame you chose, grown around its middle to the screen's
+  shape, so a little more shows above and below. With *Show the whole
+  picture* it is the whole picture again, fitted to the screen. Held the
+  other way in full screen, the board shows the other-way copy, centred.
 - **Show the whole picture** instead: no crop, white bars where it doesn't
   fill the screen.
 - **Brightness and contrast.** The preview beside it is the board's screen,
@@ -325,7 +345,9 @@ microSD card. Pick photos (or drop them on the page), and for each:
 
 Under it, the photos on the board with their thumbnails, how much of its
 storage they use, and **Delete** (tap twice). The board holds up to 100
-photos (about 120 KB each, of 19.9 MB). A factory reset keeps them.
+photos; each is about 220 KB with its full-screen copy, so its 19.9 MB
+hold about 90 (a board on older firmware is sent the photo without it,
+about 120 KB). A factory reset keeps them.
 
 Why this way: the board has no time or memory to spare for decoding and
 scaling a phone's 12-megapixel JPEG, and dithering looks best done once,

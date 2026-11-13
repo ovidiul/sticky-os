@@ -35,8 +35,8 @@ The board itself: **<https://www.seeedstudio.com/sticky/>** (Seeed Studio)
 | Calendar | What's on now and next, the week, the agenda (your Google, iCloud or Outlook calendar's iCal link; or your InfluxDB) |
 | Notes | Tasks and notes, typed or spoken; the AI sorts them (needs an OpenAI key) |
 | Timer | A countdown that rings even with sounds off |
-| Photos | Photos sent from the setup app, and JPEGs from a microSD card |
-| Quote | Quote of the Day from ZenQuotes, or the board's own list offline |
+| Photos | Photos sent from the setup app, and JPEGs from a microSD card; double-tap for full screen |
+| Quote | Quote of the Day from ZenQuotes, or the board's own list offline; double-tap for full screen |
 | Recipes | Say or type a dish; the AI writes the recipe (needs an OpenAI key) |
 | Games | 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, X and O |
 | Claude | Your weekly Claude Code usage, from your own MQTT broker |

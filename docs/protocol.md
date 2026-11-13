@@ -21,11 +21,15 @@ links themselves only go in, with `set`, as text: one a line, an optional
 label, a space, the address. `webcal://` is stored as `https://`; anything
 but https is refused (except in a `STICKY_ICS_HTTP=1` test build).
 
-**Photos (`info.photos.v` 1).** `info` also has `storage` (`total`, `used`,
+**Photos (`info.photos.v` 2).** `info` also has `storage` (`total`, `used`,
 `free` bytes of LittleFS) and `photos`: `count`, `max` (100), `max_bytes`
-(200000, one file), `chunk` (3072) and the areas the Photos app draws in,
-`landscape` [800, 436] and `portrait` [480, 756] (under the status bar).
-A board without it has no photo ops. The ops:
+(240000, one file; 200000 in v1), `chunk` (3072), the areas the Photos app
+draws in, `landscape` [800, 436] and `portrait` [480, 756] (under the status
+bar), and, since v2, `full`: {`landscape` [800, 480], `portrait` [480, 800]},
+the whole screen, for full screen. Only to a board that lists `full` does the
+setup app send a file with a full-screen picture (a version 2 file); a v1
+board gets version 1 files, as before. A board without `photos` has no photo
+ops. The ops:
 
 | Op | Request | Answer |
 |---|---|---|
@@ -47,10 +51,13 @@ time, so the board stays usable while a photo comes in.
 
 The file (`photostore.h` has the byte layout) is made in the browser: a
 96-byte header (`STKP`, version, the pictures' sizes, when it was added, a
-title) and up to four pictures packed 2 bits a pixel, 0 black to 3 white.
-The board copies them to the screen as they are: no decoding, no scaling.
+title) and up to four pictures packed 2 bits a pixel, 0 black to 3 white:
+the photo, the same fitted the other way, a thumbnail and (version 2) the
+photo for full screen. The board copies them to the screen as they are: no
+decoding, no scaling.
 
-Over the cable a photo of about 120 KB takes 18 to 20 s (6 to 7 KB/s:
+Over the cable a photo of about 120 KB (about 220 KB with the full-screen
+picture, so twice as long) takes 18 to 20 s (6 to 7 KB/s:
 115200 baud, base64, one chunk in flight). Over Bluetooth each chunk is
 about 23 writes of 180 bytes, each waiting for its answer; it is slower,
 and the setup app says so.

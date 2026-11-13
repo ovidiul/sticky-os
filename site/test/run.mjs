@@ -11,7 +11,7 @@ import {
   SerialTransport, SERIAL_FILTERS, WCH_VID, ESPRESSIF_VID, reconnectAfterRestart,
   wifiFromKey, wifiSetValue, normalizeKey, commitRestarts, GROUPS, KEY_INFO, icsSetValue, icsLabels, ICS_MAX, groupOf,
   toGrey, resample, adjust, dither4, pack2, unpack2, cropFor, fitSize, buildPhoto, photoFile, parsePhotoHead, photoTitle, titleFromName,
-  uploadPhoto, sha256Hex, toBase64, fromBase64, photoAreas, workSize, PHOTO_AREA, PHOTO_HEAD, PHOTO_KIND, PHOTO_THUMB,
+  uploadPhoto, sha256Hex, toBase64, fromBase64, photoAreas, workSize, fullCrop, PHOTO_AREA, PHOTO_HEAD, PHOTO_KIND, PHOTO_THUMB,
 } from '../src/setup/app.js';
 import { MockDevice, MockTransport, MockSerial, CH343, parsePhoto, PHOTO_LIMITS } from '../src/setup/mock.js';
 
@@ -625,13 +625,48 @@ test('photos: the file holds the photo, the other orientation fitted, and a thum
   const lv = unpack2(r.bytes.subarray(PHOTO_HEAD), 800, 436);
   assert.ok(mean(Array.from(lv.subarray(436 / 2 * 800 - 800 * 60 + 300, 436 / 2 * 800 - 800 * 60 + 340))) < 0.6);
   // the areas the board reports win over the defaults; nonsense doesn't
-  assert.deepEqual(photoAreas({ photos: { landscape: [800, 440], portrait: [480, 760] } }), { landscape: [800, 440], portrait: [480, 760] });
+  assert.deepEqual(photoAreas({ photos: { landscape: [800, 440], portrait: [480, 760] } }), { landscape: [800, 440], portrait: [480, 760], full: null });
   assert.deepEqual(photoAreas({ photos: { landscape: [8000, 1] } }).landscape, PHOTO_AREA.landscape);
+  assert.equal(head.version, 1, 'no full-screen picture: still version 1, for boards before full screen');
 });
 
-function photoBytes(seed = 1, orient = 'landscape') {
+test('photos: a board with full screen also gets the photo for the whole screen, in a version 2 file', () => {
+  const areas = photoAreas({ photos: { landscape: [800, 436], portrait: [480, 756], full: { landscape: [800, 480], portrait: [480, 800] } } });
+  assert.deepEqual(areas.full, { landscape: [800, 480], portrait: [480, 800] });
+  assert.equal(photoAreas({ photos: { full: { landscape: [800, 480] } } }).full, null, 'half a full is none');
+  const sw = 1200, sh = 900, grey = gradient(sw, sh);
+  for (const orient of ['landscape', 'portrait']) {
+    const r = buildPhoto({ grey, sw, sh, orient, title: 'Full', added: 1794500000, areas });
+    const head = parsePhotoHead(r.bytes), board = parsePhoto(r.bytes);
+    assert.equal(head.version, 2); assert.equal(board.pics.length, 4);
+    const full = head.pics.find((p) => p.kind === PHOTO_KIND.full);
+    assert.deepEqual([full.orient, full.w, full.h], orient === 'landscape' ? ['landscape', 800, 480] : ['portrait', 480, 800]);
+    assert.deepEqual(head.pics.slice(0, 3).map((p) => p.kind), [0, 1, 2], 'the first three as before');
+    assert.ok(r.bytes.length <= PHOTO_LIMITS.maxBytes, `${orient}: ${r.bytes.length} bytes`);
+    assert.ok(r.bytes.length > 200000, 'larger than the old limit: why it went up');
+  }
+  // the full-screen crop holds what was framed, and has the screen's shape
+  const c = cropFor(sw, sh, 800, 436, { zoom: 1.5, cx: 0.3, cy: 0.6 }), f = fullCrop(c, sw, sh, 800, 480);
+  assert.ok(Math.abs(f.w / f.h - 800 / 480) < 1e-9);
+  assert.ok(f.x <= c.x + 1e-9 && f.y <= c.y + 1e-9 && f.x + f.w >= c.x + c.w - 1e-9 && f.y + f.h >= c.y + c.h - 1e-9);
+  assert.ok(Math.abs(f.w - c.w) < 1e-9, 'same width: the same scale, more above and below');
+  // the picture ends: cut the other way, still inside it
+  const pano = fullCrop({ x: 0, y: 0, w: 2000, h: 500 }, 2000, 500, 800, 480);
+  assert.ok(pano.h <= 500 && pano.x >= 0 && pano.x + pano.w <= 2000 && Math.abs(pano.w / pano.h - 800 / 480) < 1e-9);
+  // fit: the whole picture, fitted to the screen
+  const fit = parsePhotoHead(buildPhoto({ grey, sw, sh, orient: 'portrait', fit: true, areas }).bytes).pics.find((p) => p.kind === 3);
+  assert.deepEqual([fit.w, fit.h], [480, 360]);
+  // a board that takes less leaves it out (and the file stays version 1)
+  const small = buildPhoto({ grey, sw, sh, orient: 'landscape', areas, maxBytes: 200000 });
+  assert.equal(parsePhotoHead(small.bytes).version, 1); assert.equal(parsePhotoHead(small.bytes).pics.length, 3);
+  // a board before full screen refuses kind 3 in a version 1 file
+  const bad = buildPhoto({ grey, sw, sh, orient: 'landscape', areas }).bytes.slice(); bad[4] = 1;
+  assert.throws(() => parsePhoto(bad), /damaged/);
+});
+
+function photoBytes(seed = 1, orient = 'landscape', areas = PHOTO_AREA) {
   const g = gradient(640, 480); for (let i = 0; i < g.length; i += 97) g[i] = (g[i] + seed * 37) % 256;
-  return buildPhoto({ grey: g, sw: 640, sh: 480, orient, title: `Photo ${seed}`, added: 1794500000 + seed }).bytes;
+  return buildPhoto({ grey: g, sw: 640, sh: 480, orient, title: `Photo ${seed}`, added: 1794500000 + seed, areas }).bytes;
 }
 
 test('photos: upload over USB, list, thumbnail, the same photo again, delete', async () => {
@@ -640,8 +675,10 @@ test('photos: upload over USB, list, thumbnail, the same photo again, delete', a
   const logs = [];
   const c = new Client(t, { log: (d, x) => logs.push([d, x]) });
   const before = (await c.request('info')).info;
-  assert.equal(before.photos.v, 1); assert.equal(before.photos.count, 0);
-  const bytes = photoBytes(1), steps = [];
+  assert.equal(before.photos.v, 2); assert.equal(before.photos.count, 0);
+  assert.deepEqual(photoAreas(before).full, { landscape: [800, 480], portrait: [480, 800] });
+  const bytes = photoBytes(1, 'landscape', photoAreas(before)), steps = [];   // with the full-screen picture, as the page sends it
+  assert.equal(parsePhotoHead(bytes).version, 2);
   const r = await uploadPhoto(c, bytes, { onProgress: (at, n) => steps.push([at, n]) });
   assert.equal(r.exists, false); assert.equal(r.id, (await sha256Hex(bytes)).slice(0, 8));
   assert.equal(r.photo.title, 'Photo 1'); assert.equal(r.photo.w, 800);

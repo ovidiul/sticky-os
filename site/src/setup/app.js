@@ -756,26 +756,31 @@ export function looksLikePosixTz(v) { return /^(<[+-]?[\w]+>|[A-Za-z]{3,})[+-]?\
 export function commitRestarts(r) { return !(r && (r.restart === false || r.changed === false)); }
 
 // ------------------------------------------------------------------ photos
-// The board's Photos app shows photos sent from here (info.photos, v1).
+// The board's Photos app shows photos sent from here (info.photos, v1; v2 adds full screen).
 // All the image work happens in this page, so the board does no decoding:
 // each photo is cropped to the board's picture area, scaled, adjusted and
 // dithered to its four greys (Floyd-Steinberg), then packed 2 bits a pixel
 // into one file with a small header (the format is in the firmware's
-// photostore.h). A file holds three pictures:
+// photostore.h). A file holds three pictures, four for a board with full screen:
 //   0  the photo as cropped, for the orientation chosen (fills the screen)
 //   1  the same crop, whole, fitted to the other orientation (white bars),
 //      so the board shows it however it is held
 //   2  a thumbnail, for the list on this page (photo_thumb)
+//   3  the photo for full screen (a double tap on the board): the whole
+//      screen held the orientation chosen, the crop grown to its shape
+//      around the same middle. Only for a board whose info lists
+//      photos.full; such a file is version 2, the rest stay version 1.
 // The file's SHA-256 names it on the board: the same photo twice is one file.
 
 export const PHOTO_VERSION = 1;
+export const PHOTO_VERSION_FULL = 2;      // a file with a full-screen picture
 export const PHOTO_HEAD = 96;
 export const PHOTO_TITLE_BYTES = 47;
 export const PHOTO_THUMB = 120;           // a thumbnail's long side
 export const PHOTO_CHUNK = 3072;          // bytes per photo_chunk, before base64 (the board may ask for less)
 // Where the Photos app draws, under the status bar, when info doesn't say.
 export const PHOTO_AREA = { landscape: [800, 436], portrait: [480, 756] };
-export const PHOTO_KIND = { photo: 0, other: 1, thumb: 2 };
+export const PHOTO_KIND = { photo: 0, other: 1, thumb: 2, full: 3 };
 export const PHOTO_WORK_MAX = 2400;       // the page works on a copy at most this long a side (the board's area is 800 at most)
 
 // The working copy's size for a picture of w x h.
@@ -783,10 +788,13 @@ export function workSize(w, h) { const s = Math.min(1, PHOTO_WORK_MAX / Math.max
 // The four greys as the page shows them: the panel's black, two greys and its paper.
 export const PANEL_GREYS = [[0x1f, 0x20, 0x23], [0x5c, 0x5e, 0x61], [0xa4, 0xa5, 0xa0], [0xe9, 0xe9, 0xe3]];
 
+// The areas the board draws photos in; `full` (the whole screen, each way)
+// only when the board has full screen, else null.
 export function photoAreas(info) {
   const p = info?.photos || {};
   const ok = (a) => Array.isArray(a) && a.length === 2 && a.every((n) => Number.isInteger(n) && n > 0 && n <= 800);
-  return { landscape: ok(p.landscape) ? p.landscape : PHOTO_AREA.landscape, portrait: ok(p.portrait) ? p.portrait : PHOTO_AREA.portrait };
+  const full = p.full && ok(p.full.landscape) && ok(p.full.portrait) ? { landscape: p.full.landscape, portrait: p.full.portrait } : null;
+  return { landscape: ok(p.landscape) ? p.landscape : PHOTO_AREA.landscape, portrait: ok(p.portrait) ? p.portrait : PHOTO_AREA.portrait, full };
 }
 
 // RGBA bytes to grey, 0..255, on white where transparent. The same weights
@@ -919,6 +927,19 @@ export function cropFor(sw, sh, aw, ah, { zoom = 1, cx = 0.5, cy = 0.5 } = {}) {
   return { x, y, w, h };
 }
 
+// The crop c grown to the shape aw x ah around its middle, for full screen:
+// what was framed, and more above and below (or at the sides) to fill the
+// screen. Kept inside the picture; where the picture ends, it is cut the
+// other way instead.
+export function fullCrop(c, sw, sh, aw, ah) {
+  const shape = aw / ah;
+  let w = Math.max(c.w, c.h * shape), h = w / shape;
+  if (h > sh) { h = sh; w = h * shape; }
+  if (w > sw) { w = sw; h = w / shape; }
+  const mx = c.x + c.w / 2, my = c.y + c.h / 2;
+  return { x: Math.min(sw - w, Math.max(0, mx - w / 2)), y: Math.min(sh - h, Math.max(0, my - h / 2)), w, h };
+}
+
 // A title of at most PHOTO_TITLE_BYTES bytes of UTF-8, cut at a character.
 export function photoTitle(s) {
   let t = String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
@@ -932,14 +953,16 @@ export function titleFromName(name) { return photoTitle(String(name || '').repla
 // One grey image and its choices into the board's file, plus the pictures
 // for the preview. grey: Float32Array, sw x sh. orient: 'landscape' or
 // 'portrait'. fit: show the whole picture with white bars instead of
-// filling the area (then crop is the whole image unless given).
-export function buildPhoto({ grey, sw, sh, orient = 'landscape', crop, fit = false, brightness = 0, contrast = 0, title = '', added, areas = PHOTO_AREA } = {}) {
+// filling the area (then crop is the whole image unless given). With
+// areas.full (photoAreas() of a board with full screen) the file also gets
+// the full-screen picture, unless that would make it larger than maxBytes.
+export function buildPhoto({ grey, sw, sh, orient = 'landscape', crop, fit = false, brightness = 0, contrast = 0, title = '', added, areas = PHOTO_AREA, maxBytes = Infinity } = {}) {
   if (!(grey && sw > 0 && sh > 0)) throw new Error('no picture');
   const other = orient === 'portrait' ? 'landscape' : 'portrait';
   const [aw, ah] = areas[orient], [bw, bh] = areas[other];
   const c = crop || (fit ? { x: 0, y: 0, w: sw, h: sh } : cropFor(sw, sh, aw, ah));
-  const make = (kind, o, w, h) => {
-    const levels = dither4(adjust(resample(grey, sw, sh, c, w, h), { brightness, contrast }), w, h);
+  const make = (kind, o, w, h, from = c) => {
+    const levels = dither4(adjust(resample(grey, sw, sh, from, w, h), { brightness, contrast }), w, h);
     return { kind, orient: o, w, h, levels, bytes: pack2(levels, w, h) };
   };
   const mainSize = fit ? fitSize(c.w, c.h, aw, ah) : [aw, ah];
@@ -948,6 +971,11 @@ export function buildPhoto({ grey, sw, sh, orient = 'landscape', crop, fit = fal
     make(PHOTO_KIND.other, other, ...fitSize(c.w, c.h, bw, bh)),
     make(PHOTO_KIND.thumb, orient, ...fitSize(c.w, c.h, PHOTO_THUMB, PHOTO_THUMB)),
   ];
+  if (areas.full?.[orient]) {   // whole, with bars, when fitting; else the crop grown to fill the screen
+    const [fw, fh] = areas.full[orient], fc = fit ? c : fullCrop(c, sw, sh, fw, fh);
+    const full = make(PHOTO_KIND.full, orient, ...(fit ? fitSize(c.w, c.h, fw, fh) : [fw, fh]), fc);
+    if (PHOTO_HEAD + [...pics, full].reduce((n, p) => n + p.bytes.length, 0) <= maxBytes) pics.push(full);
+  }
   return { bytes: photoFile(pics, { title, added }), pics, crop: c };
 }
 
@@ -955,7 +983,7 @@ export function photoFile(pics, { title = '', added = Math.floor(Date.now() / 10
   const size = PHOTO_HEAD + pics.reduce((n, p) => n + p.bytes.length, 0);
   const out = new Uint8Array(size), v = new DataView(out.buffer);
   out.set(enc.encode('STKP'), 0);
-  out[4] = PHOTO_VERSION; out[5] = pics.length; v.setUint16(6, PHOTO_HEAD, true); v.setUint32(8, added >>> 0, true);
+  out[4] = pics.some((p) => p.kind === PHOTO_KIND.full) ? PHOTO_VERSION_FULL : PHOTO_VERSION; out[5] = pics.length; v.setUint16(6, PHOTO_HEAD, true); v.setUint32(8, added >>> 0, true);
   pics.forEach((p, i) => { const o = 12 + i * 8; out[o] = p.kind; out[o + 1] = p.orient === 'portrait' ? 1 : 0; v.setUint16(o + 2, p.w, true); v.setUint16(o + 4, p.h, true); });
   out.set(enc.encode(photoTitle(title)), 44);
   let o = PHOTO_HEAD;
@@ -2083,6 +2111,7 @@ class App {
           h('p.muted.small', st.fit ? '' : 'Drag the frame to choose what shows; zoom to show less.'),
           h('fieldset.seg', h('legend.label', 'Made for the board held'), h('div.seg-row', seg('l', 'landscape', 'Landscape'), seg('p', 'portrait', 'Portrait'))),
           h('p.help', 'Held the other way, the board shows the same picture whole, smaller, with white above and below.'),
+          photoAreas(this.info).full ? h('p.help', 'Full screen (double-tap the photo on the board) shows a little more above and below, to fill the whole screen.') : null,
           h('label.check', fitBox, ' Show the whole picture, with white bars, instead of filling the screen'),
           h('div.ph-sliders', zoomLabel, zoomIn, ...slider('ph-bright', 'Brightness', -100, 100, 1, 'brightness'), ...slider('ph-contrast', 'Contrast', -100, 100, 1, 'contrast')),
           h('button.btn.link.small', { type: 'button', onclick: () => {
@@ -2105,7 +2134,7 @@ class App {
     const st = ed.st, work = ed.work, areas = photoAreas(this.info);
     const crop = st.fit ? undefined : cropFor(work.w, work.h, ...areas[st.orient], st);
     const built = buildPhoto({ grey: work.grey, sw: work.w, sh: work.h, orient: st.orient, crop, fit: st.fit,
-      brightness: st.brightness, contrast: st.contrast, title: st.title, areas });
+      brightness: st.brightness, contrast: st.contrast, title: st.title, areas, maxBytes: this.info.photos.max_bytes || Infinity });
     const bar = h('progress', { max: built.bytes.length, value: 0 });
     const text = h('span.muted.small', `0 of ${fmtBytes(built.bytes.length)}`);
     const ctl = new AbortController();
