@@ -755,6 +755,17 @@ test('published files hold no private data and point at real files', async () =>
   }
 });
 
+test('site: links to other websites open in a new tab, without opener or referrer', async () => {
+  const { readFile } = await import('node:fs/promises');
+  for (const f of ['index.html', 'setup/index.html']) {
+    const html = await readFile(new URL('../src/' + f, import.meta.url), 'utf8');
+    for (const [tag] of html.matchAll(/<a\s[^>]*href="https?:\/\/[^"]*"[^>]*>/g)) {
+      assert.match(tag, /target="_blank"/, `${f}: ${tag}`);
+      assert.match(tag, /rel="[^"]*noopener[^"]*noreferrer|rel="[^"]*noreferrer[^"]*noopener/, `${f}: ${tag}`);
+    }
+  }
+});
+
 // ------------------------------------------------------------------ run
 for (const [name, fn] of tests) {
   try { await fn(); passed++; console.log(`ok   ${name}`); }
