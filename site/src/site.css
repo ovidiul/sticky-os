@@ -325,3 +325,42 @@ footer p { margin: 0 0 .5rem; }
 .post-card strong::after { content: " →"; }
 .post-card-text > span { display: block; color: var(--graphite); font-size: .98rem; line-height: 1.5; }
 @media (min-width: 34.01rem) { .post-body .shots:not(.two-portrait) { align-items: center; } }
+
+/* Videos: a poster that links to YouTube. Nothing is embedded, so nothing loads
+   from YouTube until you choose to watch (and the CSP allows no frames). */
+.video { margin: 0; }
+.video a { position: relative; display: block; overflow: hidden; text-decoration: none; color: inherit;
+  border: 2px solid var(--ink); border-radius: .7rem; background: #f3f2ee;
+  box-shadow: 0 22px 40px -22px rgba(0,0,0,.4); }
+.video img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.video-play { position: absolute; left: 50%; top: 50%; width: clamp(3.4rem, 8vw, 5.2rem); aspect-ratio: 1;
+  transform: translate(-50%, -50%); border-radius: 50%; background: #1f2023;
+  box-shadow: 0 0 0 4px rgba(255,255,255,.85), 0 10px 26px rgba(0,0,0,.35); }
+.video-play::after { content: ""; position: absolute; inset: 30% 26% 30% 36%; background: #f2cf3a;
+  clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.video-time { position: absolute; right: .6rem; bottom: .6rem; padding: .2rem .5rem; border-radius: .35rem;
+  background: #1f2023; color: #fff; font: 700 .85rem/1.2 var(--text); font-variant-numeric: tabular-nums; }
+.video a:hover .video-play, .video a:focus-visible .video-play { background: #f2cf3a; }
+.video a:hover .video-play::after, .video a:focus-visible .video-play::after { background: #1f2023; }
+@media (prefers-reduced-motion: no-preference) {
+  .video-play { transition: transform .2s, background-color .2s; }
+  .video a:hover .video-play { transform: translate(-50%, -50%) scale(1.08); }
+}
+.video figcaption { padding-top: .7rem; color: var(--graphite); font-size: .9rem; line-height: 1.35; }
+.video figcaption strong { color: var(--ink); }
+
+/* The tour, under the hero */
+.watch { padding-bottom: clamp(3rem, 7vw, 5.5rem); }
+.watch .wrap { display: grid; gap: 1.5rem clamp(2rem, 5vw, 4.5rem); align-items: center; }
+@media (min-width: 56rem) { .watch .wrap { grid-template-columns: 1fr 1.6fr; } }
+.watch h2 { font-size: var(--step-2); font-stretch: 85%; margin-bottom: .8rem; }
+.watch p { color: var(--graphite); }
+
+/* A short video in a tour feature, under its words */
+.feature .copy .video { max-width: 26rem; margin-top: 1.6rem; }
+
+/* In the blog post */
+.post-body .video { margin: .5rem 0 2rem; }
+.post-body .videos { display: grid; gap: 1.5rem; margin: 2rem 0 1.4rem; }
+.post-body .videos .video { margin: 0; }
+@media (min-width: 34.01rem) { .post-body .videos { grid-template-columns: 1fr 1fr; } }

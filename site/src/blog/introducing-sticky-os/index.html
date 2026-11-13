@@ -56,14 +56,14 @@
   </header>
 
   <div class="post-body wrap narrow">
-    <div class="shots single">
-      <figure class="device">
-        <div class="screen">
-          <img src="../../shots/home-landscape.png" width="800" height="480" fetchpriority="high" alt="The {{NAME}} home screen in landscape: the time, the weather and the next event above two rows of app icons">
-        </div>
-        <figcaption>Home, held sideways: the day at a glance, then an icon for every app</figcaption>
-      </figure>
-    </div>
+    <figure class="video">
+      <a href="https://www.youtube.com/watch?v=w9eOCHewkCY" target="_blank" rel="noopener noreferrer">
+        <img src="../../shots/video-tour.jpg" width="1280" height="720" loading="lazy" alt="Watch the {{NAME}} tour on YouTube (1 min 23 s)">
+        <span class="video-play" aria-hidden="true"></span>
+        <span class="video-time" aria-hidden="true">1:23</span>
+      </a>
+      <figcaption><strong>The 80-second tour</strong>, filmed on the board. It opens on YouTube; nothing from YouTube loads on this page.</figcaption>
+    </figure>
 
     <h2>A board that stays still</h2>
     <p>A phone wants your attention. A board on the fridge should do the opposite: tell you what you need as you walk past, then stay still.</p>
@@ -73,6 +73,15 @@
 
     <h2>What’s on the board</h2>
     <p>The board starts on Home. A widget at the top shows the time, the weather and your next event, and below it sits an icon for every app. The icons are live: the clock’s hands move, the calendar shows today’s date, and badges count your open tasks. Swipe down from the status bar for quick settings, or open Settings, which reads like a phone’s: plain headings, a switch or an arrow on each row. Turn the board on its side and the picture turns with it.</p>
+    <div class="shots single">
+      <figure class="device">
+        <div class="screen">
+          <img src="../../shots/home-landscape.png" width="800" height="480" loading="lazy" alt="The {{NAME}} home screen in landscape: the time, the weather and the next event above two rows of app icons">
+        </div>
+        <figcaption>Home, held sideways: the day at a glance, then an icon for every app</figcaption>
+      </figure>
+    </div>
+
     <p>The twelve apps:</p>
     <ul>
       <li><strong>Clock</strong>: the time in large type, with the room’s temperature and humidity.</li>
@@ -87,6 +96,26 @@
       <li><strong>Claude usage</strong>: this week’s Claude Code usage as a gauge, from an MQTT feed you publish.</li>
       <li><strong>Settings</strong> and <strong>About</strong>.</li>
     </ul>
+
+    <p>Voice is the quickest way in. Here it is adding tasks to Notes, and asking Recipes for dinner:</p>
+    <div class="videos">
+      <figure class="video">
+        <a href="https://www.youtube.com/watch?v=90QTHVoBs4s" target="_blank" rel="noopener noreferrer">
+          <img src="../../shots/video-voice-notes.jpg" width="1280" height="720" loading="lazy" alt="Watch voice notes on {{NAME}} on YouTube (29 s)">
+          <span class="video-play" aria-hidden="true"></span>
+          <span class="video-time" aria-hidden="true">0:29</span>
+        </a>
+        <figcaption><strong>Voice notes:</strong> speak a task, it lands on the list</figcaption>
+      </figure>
+      <figure class="video">
+        <a href="https://www.youtube.com/watch?v=dkU3Z6cRuuQ" target="_blank" rel="noopener noreferrer">
+          <img src="../../shots/video-recipes.jpg" width="1280" height="720" loading="lazy" alt="Watch {{NAME}} make a recipe by voice on YouTube (37 s)">
+          <span class="video-play" aria-hidden="true"></span>
+          <span class="video-time" aria-hidden="true">0:37</span>
+        </a>
+        <figcaption><strong>Recipes by voice:</strong> ask for a dish, get the recipe</figcaption>
+      </figure>
+    </div>
 
     <div class="shots">
       <figure class="device">
@@ -183,11 +212,15 @@
     <p>From then on, updates come from Settings → Software update.</p>
 
     <h2>What’s next</h2>
-    <p>Some of what is planned:</p>
+    <p>Full screen for Photos and Quote is already here: it is now in v1.2. Double-tap a photo or the quote to give it the whole screen, and double-tap again to come back.</p>
+    <p>Coming in the next update:</p>
+    <ul>
+      <li>A clear sign of what voice is doing: a <em>Listening</em> card while the board hears you, then a <em>Thinking</em> card while it works out the answer.</li>
+      <li>A NEW marker on notes added by voice, so you can see what just landed on the list.</li>
+    </ul>
+    <p>And further out:</p>
     <ul>
       <li>Notes that understand due dates, with “add to calendar” through a QR code you scan with your phone.</li>
-      <li>A clear indicator while the board is listening.</li>
-      <li>Full-screen Photos and Quote.</li>
       <li>A switch between the chart and the table for the hourly weather.</li>
     </ul>
     <p>If you have a reTerminal Sticky, I would love to hear how it goes. <a href="https://github.com/ovidiul/sticky-os/issues" target="_blank" rel="noopener noreferrer">Issues and ideas</a> go on GitHub, and contributions are welcome: <a href="https://github.com/ovidiul/sticky-os/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">CONTRIBUTING.md</a> explains how the code is laid out and how to test a change on a real board.</p>
