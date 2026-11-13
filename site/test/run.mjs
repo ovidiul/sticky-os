@@ -757,13 +757,37 @@ test('published files hold no private data and point at real files', async () =>
 
 test('site: links to other websites open in a new tab, without opener or referrer', async () => {
   const { readFile } = await import('node:fs/promises');
-  for (const f of ['index.html', 'setup/index.html']) {
+  for (const f of ['index.html', 'setup/index.html', ...BLOG_PAGES]) {
     const html = await readFile(new URL('../src/' + f, import.meta.url), 'utf8');
     for (const [tag] of html.matchAll(/<a\s[^>]*href="https?:\/\/[^"]*"[^>]*>/g)) {
       assert.match(tag, /target="_blank"/, `${f}: ${tag}`);
       assert.match(tag, /rel="[^"]*noopener[^"]*noreferrer|rel="[^"]*noreferrer[^"]*noopener/, `${f}: ${tag}`);
     }
   }
+});
+
+const BLOG_PAGES = ['blog/index.html', 'blog/introducing-sticky-os/index.html'];
+
+test('blog: pages pass the CSP, point at real files, and say the board is not Seeed\'s', async () => {
+  const { readFile } = await import('node:fs/promises');
+  for (const f of BLOG_PAGES) {
+    const page = new URL('../src/' + f, import.meta.url);
+    const html = await readFile(page, 'utf8');
+    assert.ok(!/<script(?![^>]*\ssrc=)[^>]*>/i.test(html), `${f}: an inline script`);
+    assert.ok(!/<style[\s>]|\sstyle="|\son[a-z]+="/i.test(html), `${f}: inline style or an event handler`);
+    assert.ok(!/192\.168\.\d+\.\d+|100\.\d+\.\d+\.\d+|\.ts\.net\b|relay|mac studio/i.test(html), `${f}: private detail`);
+    assert.match(html, /Not made by or affiliated with Seeed Studio\./, `${f}: the disclaimer`);
+    for (const [, ref] of html.matchAll(/(?:href|src)="([^"#?:]+)"/g)) {   // throws if a file is missing
+      await readFile(new URL(ref.endsWith('/') ? ref + 'index.html' : ref, page));
+    }
+  }
+  const post = await readFile(new URL('../src/blog/introducing-sticky-os/index.html', import.meta.url), 'utf8');
+  assert.match(post, /\{\{NAME\}\} is an independent, open-source firmware for the Seeed reTerminal Sticky\. Not made by or affiliated with Seeed Studio\./);
+  const og = post.match(/<meta property="og:image" content="https:\/\/sticky-os\.space\.fast\/(shots\/[^"]+\.png)">/);
+  assert.ok(og, 'the post: an og:image on the site');
+  await readFile(new URL('../src/' + og[1], import.meta.url));   // the picture is published with the site
+  const home = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
+  assert.match(home, /href="blog\/"/, 'index.html: a Blog link');
 });
 
 // ------------------------------------------------------------------ run

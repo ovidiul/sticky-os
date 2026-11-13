@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Introducing {{NAME}}: calm apps for a magnetic e-paper board</title>
+<meta name="description" content="{{NAME}} 1.0 is free, open-source firmware for the Seeed reTerminal Sticky: twelve glanceable e-paper apps, setup from your browser, and updates that roll themselves back if something goes wrong.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ecede8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d1e20" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://sticky-os.space.fast/blog/introducing-sticky-os/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="{{NAME}}">
+<meta property="og:title" content="Introducing {{NAME}}: calm apps for a magnetic e-paper board">
+<meta property="og:description" content="Free, open-source firmware for the Seeed reTerminal Sticky: twelve glanceable e-paper apps, setup from your browser, and updates that roll themselves back.">
+<meta property="og:url" content="https://sticky-os.space.fast/blog/introducing-sticky-os/">
+<meta property="og:image" content="https://sticky-os.space.fast/shots/home-landscape.png">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="480">
+<meta property="og:image:alt" content="The {{NAME}} home screen in landscape: the time, the weather and the next event above two rows of app icons">
+<meta property="article:published_time" content="2026-11-13">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Introducing {{NAME}}: calm apps for a magnetic e-paper board">
+<meta name="twitter:description" content="Free, open-source firmware for the Seeed reTerminal Sticky: twelve glanceable e-paper apps, setup from your browser, and safe updates.">
+<meta name="twitter:image" content="https://sticky-os.space.fast/shots/home-landscape.png">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../../fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../../fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../../"><svg width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><rect x="1.5" y="1.5" width="15" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M5 7h8M5 11h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>{{NAME}}</a>
+    <nav aria-label="Site">
+      <ul>
+        <li><a href="../../#tour">Tour</a></li>
+        <li><a href="../../#apps">Apps</a></li>
+        <li><a href="../../#install">Install</a></li>
+        <li><a href="../../setup/">Setup app</a></li>
+        <li><a href="../" aria-current="page">Blog</a></li>
+        <li><a class="gh" href="https://github.com/ovidiul/sticky-os" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="post">
+  <header class="post-head wrap narrow">
+    <p class="kicker"><a href="../">Blog</a> · <time datetime="2026-11-13">13 November 2026</time><!-- byline: author name goes here, e.g. " · by Name" --></p>
+    <h1>Introducing {{NAME}}: calm apps for a magnetic e-paper board</h1>
+    <p class="lede">{{NAME}} 1.0 is out. It is free, open-source firmware that turns the Seeed reTerminal Sticky into a quiet home screen for the fridge door. Here is why it exists, what it does, and a few things I learned making it.</p>
+  </header>
+
+  <div class="post-body wrap narrow">
+    <div class="shots single">
+      <figure class="device">
+        <div class="screen">
+          <img src="../../shots/home-landscape.png" width="800" height="480" fetchpriority="high" alt="The {{NAME}} home screen in landscape: the time, the weather and the next event above two rows of app icons">
+        </div>
+        <figcaption>Home, held sideways: the day at a glance, then an icon for every app</figcaption>
+      </figure>
+    </div>
+
+    <h2>A board that stays still</h2>
+    <p>A phone wants your attention. A board on the fridge should do the opposite: tell you what you need as you walk past, then stay still.</p>
+    <p>E-paper is made for that. It reads like printed paper in daylight, it keeps its picture with no power at all, and it redraws slowly enough that nothing on it ever flickers for attention. The <a href="https://www.seeedstudio.com/sticky/" target="_blank" rel="noopener noreferrer">Seeed reTerminal Sticky</a> puts a 3.97-inch touch e-paper screen on a magnetic back, with an ESP32-S3, 8 MB of PSRAM, a microphone, a battery and three buttons on the top edge. It is a lovely piece of hardware that asked for software built around a glance.</p>
+    <p>So I wrote some. {{NAME}} gives the board a home screen, a status bar, quick settings and twelve apps, each made to show one thing clearly from across the kitchen. The firmware is on GitHub under the MIT licence.</p>
+    <p class="disclaimer">{{NAME}} is an independent, open-source firmware for the Seeed reTerminal Sticky. Not made by or affiliated with Seeed Studio.</p>
+
+    <h2>What’s on the board</h2>
+    <p>The board starts on Home. A widget at the top shows the time, the weather and your next event, and below it sits an icon for every app. The icons are live: the clock’s hands move, the calendar shows today’s date, and badges count your open tasks. Swipe down from the status bar for quick settings, or open Settings, which reads like a phone’s: plain headings, a switch or an arrow on each row. Turn the board on its side and the picture turns with it.</p>
+    <p>The twelve apps:</p>
+    <ul>
+      <li><strong>Clock</strong>: the time in large type, with the room’s temperature and humidity.</li>
+      <li><strong>Weather</strong>: now and the next five days. Tap a day for its hours, drawn as a chart when the board is held sideways and as a table when it is upright.</li>
+      <li><strong>Calendar</strong>: paste a calendar link from Google, iCloud or Outlook. Recurring events and time zones are worked out on the board itself.</li>
+      <li><strong>Notes</strong>: tasks and notes, typed or spoken. Voice uses your own OpenAI key (or a compatible speech server you run).</li>
+      <li><strong>Timer</strong>: a kitchen timer that rings even with button sounds off.</li>
+      <li><strong>Photos</strong>: pictures you upload from the browser, dithered to the panel’s four greys.</li>
+      <li><strong>Quote of the Day</strong>: from ZenQuotes, with an offline list of public-domain quotes for when there’s no WiFi.</li>
+      <li><strong>Recipes</strong>: say what you want to cook and get a structured recipe with tick-boxes for the ingredients.</li>
+      <li><strong>Games</strong>: a folder of seven: 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, and X and O. The AI games fall back to built-in questions and a built-in story without a key.</li>
+      <li><strong>Claude usage</strong>: this week’s Claude Code usage as a gauge, from an MQTT feed you publish.</li>
+      <li><strong>Settings</strong> and <strong>About</strong>.</li>
+    </ul>
+
+    <div class="shots">
+      <figure class="device">
+        <div class="screen">
+          <img src="../../shots/weather-hours.png" width="800" height="480" loading="lazy" alt="Today’s hours in landscape: a temperature line, rain chances as bars, and the sky, hour and wind every three hours">
+        </div>
+        <figcaption>Sideways, a day of weather is a chart</figcaption>
+      </figure>
+      <figure class="device portrait">
+        <div class="screen">
+          <img src="../../shots/weather-hours-portrait.png" width="480" height="800" loading="lazy" alt="Today’s hours held upright: a row per hour with the sky, temperature, chance of rain and wind">
+        </div>
+        <figcaption>Upright, it’s a table</figcaption>
+      </figure>
+    </div>
+
+    <div class="shots two-portrait">
+      <figure class="device portrait">
+        <div class="screen">
+          <img src="../../shots/recipe.png" width="480" height="800" loading="lazy" alt="A recipe for lemon, pea and basil pasta: 20 minutes, serves 2, with ingredients to tick">
+        </div>
+        <figcaption>A recipe, readable from the hob</figcaption>
+      </figure>
+      <figure class="device portrait">
+        <div class="screen">
+          <img src="../../shots/games.png" width="480" height="800" loading="lazy" alt="The Games folder: icons for 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure and X and O">
+        </div>
+        <figcaption>Seven games, turn by turn</figcaption>
+      </figure>
+    </div>
+
+    <h2>Setup without an app store</h2>
+    <p>There is no companion app to install and no account to make. The setup app is a web page, at <a href="../../setup/">sticky-os.space.fast/setup</a>. Open it in Chrome or Edge, plug the board in over USB (Web Serial) or connect over Bluetooth (Web Bluetooth), and add your WiFi, your town, your calendar links and, if you like, an OpenAI key.</p>
+    <p>Nothing personal is compiled into the firmware. Your settings live on the board, passwords and keys can be written but never read back, and the page talks only to the board on your desk. There is also a <a href="../../setup/?demo">demo mode</a> that runs against a simulated board, if you want to look around first.</p>
+
+    <h2>Under the hood</h2>
+    <p>A small board with a slow screen and a few hundred kilobytes of fast memory makes you careful. A few of the things that shaped {{NAME}}:</p>
+
+    <h3>Draw only what changed</h3>
+    <p>A partial refresh of the panel takes about 0.6 seconds. Partial refreshes leave faint ghosts behind, so every twelfth one is a full refresh that flashes the screen clean. The panel shows four grey levels. Every screen redraws only when something on it actually changed, so most of the time the board is simply showing a picture and doing nothing at all.</p>
+
+    <h3>Every byte of internal RAM counted</h3>
+    <p>The ESP32-S3 has plenty of PSRAM but very little fast internal RAM, and internal RAM is what runs out first. The UI loop runs on an 8 KB stack, and the static RAM change of every feature was measured before it went in. Big buffers live in PSRAM. Encrypted connections are expensive too, so the board keeps at most about two TLS sessions open at once.</p>
+
+    <h3>Never freeze</h3>
+    <p>Early on, a server that accepted a connection and then said nothing could freeze the screen for 124 seconds. Now every network call runs off the UI loop with a bounded timeout: the same silent server gets 8 seconds before the board gives up, and you can cancel before then. A service that keeps failing is asked less often, and errors are written in plain words, such as “The broker refused the login.”, rather than as a code.</p>
+
+    <h3>Let the browser do the heavy lifting</h3>
+    <p>Photos show the idea best. In the setup app, your browser crops the picture, dithers it to four greys with Floyd–Steinberg, and packs it at 2 bits per pixel, exactly as the panel wants it. The board just copies the bytes to the screen, which takes about 40 ms. A photo is about 120 KB and takes around 20 seconds to send over USB.</p>
+
+    <div class="shots">
+      <figure class="device">
+        <div class="screen">
+          <img src="../../shots/photo.png" width="800" height="480" loading="lazy" alt="The Photos app in landscape: Ansel Adams’ photograph of the Teton Range above the Snake River, in four greys">
+        </div>
+        <figcaption>On the board, in four greys</figcaption>
+      </figure>
+      <figure class="browser">
+        <img src="../../shots/setup-photos.webp" width="740" height="910" loading="lazy" alt="The setup app’s Photos page: the photograph with a crop frame and sliders for zoom, brightness and contrast">
+        <figcaption>Cropped and dithered in the browser</figcaption>
+      </figure>
+    </div>
+    <p class="credit">Photo: Ansel Adams, <cite>The Tetons and the Snake River</cite> (1942), Grand Teton National Park. U.S. National Park Service, public domain, via the National Archives.</p>
+
+    <p>Calendars go the other way: the board does the work, because it has to read the feed itself. Feeds are streamed rather than loaded whole, and recurring rules, exceptions and time zones are expanded on the board. A 7.4 MB feed with years of history parses in 17 seconds.</p>
+
+    <h3>Updates that can take themselves back</h3>
+    <p>You flash {{NAME}} over USB once. After that, Settings → Software update fetches new versions from GitHub Releases over WiFi and checks each one’s SHA-256 before installing it. If a new version doesn’t come up healthy, the board rolls back to the one before. I tested that by shipping a deliberately broken build to a board and watching it return. Installing by itself is off by default: you choose when.</p>
+
+    <div class="shots two-portrait">
+      <figure class="device portrait">
+        <div class="screen">
+          <img src="../../shots/update.png" width="480" height="800" loading="lazy" alt="Software update: this version, a newer one available, and Install and Check now buttons">
+        </div>
+        <figcaption>Settings → Software update</figcaption>
+      </figure>
+      <figure class="device portrait">
+        <div class="screen">
+          <img src="../../shots/update-progress.png" width="480" height="800" loading="lazy" alt="Updating: a progress bar at 70% and a reminder not to unplug the board">
+        </div>
+        <figcaption>It restarts by itself when done</figcaption>
+      </figure>
+    </div>
+
+    <h3>Tested by a monkey</h3>
+    <p>Before 1.0, a random “monkey” tester tapped, swiped and pressed its way through every app for three and a half hours without a crash. Fault tests covered the unhappy paths too: servers that go silent, wrong passwords, and replies that make no sense.</p>
+
+    <h2>Get it</h2>
+    <ol>
+      <li>Download <code>sticky-os-full.bin</code> from the <a href="https://github.com/ovidiul/sticky-os/releases/latest" target="_blank" rel="noopener noreferrer">latest release on GitHub</a>.</li>
+      <li>Flash it once over USB, with esptool or Espressif’s ESP Tool in the browser. The <a href="https://github.com/ovidiul/sticky-os#install" target="_blank" rel="noopener noreferrer">README</a> has the commands for macOS, Linux and Windows, and how to keep a copy of the original firmware.</li>
+      <li>Open the <a href="../../setup/">setup app</a> and add your WiFi.</li>
+    </ol>
+    <p>From then on, updates come from Settings → Software update.</p>
+
+    <h2>What’s next</h2>
+    <p>Some of what is planned:</p>
+    <ul>
+      <li>Notes that understand due dates, with “add to calendar” through a QR code you scan with your phone.</li>
+      <li>A clear indicator while the board is listening.</li>
+      <li>Full-screen Photos and Quote.</li>
+      <li>A switch between the chart and the table for the hourly weather.</li>
+    </ul>
+    <p>If you have a reTerminal Sticky, I would love to hear how it goes. <a href="https://github.com/ovidiul/sticky-os/issues" target="_blank" rel="noopener noreferrer">Issues and ideas</a> go on GitHub, and contributions are welcome: <a href="https://github.com/ovidiul/sticky-os/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">CONTRIBUTING.md</a> explains how the code is laid out and how to test a change on a real board.</p>
+
+    <p class="post-end"><a class="button" href="../../#install">Install {{NAME}}</a> <a href="../../#tour">Take the tour</a></p>
+  </div>
+</article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="brand">{{NAME}}</span></p>
+    <div>
+      <p>An independent, open-source firmware for the <a href="https://www.seeedstudio.com/sticky/" target="_blank" rel="noopener noreferrer">Seeed reTerminal Sticky</a>. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
+      <p>Every screenshot is the board’s own picture, captured as drawn, with demo data. The photo is Ansel Adams’ <cite>The Tetons and the Snake River</cite> (1942), public domain.</p>
+      <p><a href="https://github.com/ovidiul/sticky-os" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://github.com/ovidiul/sticky-os/issues" target="_blank" rel="noopener noreferrer">Issues</a> · <a href="https://github.com/ovidiul/sticky-os/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT licence</a></p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

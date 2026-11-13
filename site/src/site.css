@@ -291,3 +291,37 @@ footer p { margin: 0 0 .5rem; }
 .links strong::after { content: " →"; }
 .links span { display: block; color: var(--graphite); font-size: .98rem; line-height: 1.45; }
 .top nav a.gh { font-weight: 700; }
+
+/* Blog: one narrow column of article type, the same device frames */
+.narrow { max-width: 46rem; }
+.post-head { padding-top: clamp(2.5rem, 6vw, 5rem); padding-bottom: 2rem; }
+.post-head h1 { font-size: clamp(2.4rem, 1.4rem + 3.6vw, 4rem); font-stretch: 78%; font-weight: 800; letter-spacing: -.02em; max-width: 20ch; }
+.post-head .lede { font-size: var(--step-1); line-height: 1.5; margin-top: 1.25rem; }
+.kicker { color: var(--graphite); font-size: .95rem; margin-bottom: 1rem; }
+.post-body { padding-bottom: clamp(3rem, 7vw, 5rem); font-size: 1.1rem; line-height: 1.7; }
+.post-body > p, .post-body li { max-width: none; }
+.post-body h2 { font-size: var(--step-2); font-stretch: 85%; max-width: none; margin: 3.2rem 0 1rem; padding-top: 1.6rem; border-top: 2px solid var(--ink); }
+.post-body h3 { font-size: 1.4rem; font-stretch: 90%; margin: 2.2rem 0 .6rem; }
+.post-body ul, .post-body ol { padding-left: 1.3rem; margin: 0 0 1.2em; }
+.post-body li { margin-bottom: .45rem; }
+.post-body li::marker { color: var(--graphite); }
+.post-body .shots { margin: 2.2rem 0 1.4rem; }
+.post-body .shots.single { margin-top: .5rem; }
+.post-body .credit { color: var(--graphite); font-size: .9rem; line-height: 1.45; }
+.disclaimer { border-left: 6px solid var(--mark); padding: .2rem 0 .2rem 1rem; color: var(--graphite); font-size: 1rem; }
+.post-end { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; margin-top: 2.5rem; }
+.top nav a[aria-current] { text-decoration: underline; text-decoration-color: var(--mark); text-decoration-thickness: .3em; }
+
+.post-list { list-style: none; padding: 0; margin: 0 0 clamp(3rem, 7vw, 5rem); display: grid; gap: 1.5rem; }
+.post-card { display: grid; gap: 1.25rem 1.75rem; padding: 1.4rem; border: 2px solid var(--ink); border-radius: 4px;
+  text-decoration: none; color: var(--ink); background: var(--paper); align-items: center; }
+.post-card:hover, .post-card:focus-visible { background: var(--paper-2); }
+@media (min-width: 40rem) { .post-card { grid-template-columns: 15rem 1fr; } }
+.post-card .device { display: block; --r: .9rem; --bez: 10px; }
+.post-card .screen { display: block; }
+.post-card-text { display: block; }
+.post-card time { display: block; color: var(--graphite); font-size: .9rem; margin-bottom: .3rem; }
+.post-card strong { display: block; font: 700 1.5rem/1.15 var(--display); font-stretch: 88%; margin-bottom: .5rem; }
+.post-card strong::after { content: " →"; }
+.post-card-text > span { display: block; color: var(--graphite); font-size: .98rem; line-height: 1.5; }
+@media (min-width: 34.01rem) { .post-body .shots:not(.two-portrait) { align-items: center; } }

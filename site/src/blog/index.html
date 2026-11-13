@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blog: {{NAME}}</title>
+<meta name="description" content="News and notes from {{NAME}}, the independent, open-source firmware for the Seeed reTerminal Sticky e-paper board.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ecede8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d1e20" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://sticky-os.space.fast/blog/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{NAME}}">
+<meta property="og:title" content="Blog: {{NAME}}">
+<meta property="og:description" content="News and notes from {{NAME}}, open-source firmware for the Seeed reTerminal Sticky.">
+<meta property="og:url" content="https://sticky-os.space.fast/blog/">
+<meta property="og:image" content="https://sticky-os.space.fast/shots/home-landscape.png">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><svg width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><rect x="1.5" y="1.5" width="15" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M5 7h8M5 11h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>{{NAME}}</a>
+    <nav aria-label="Site">
+      <ul>
+        <li><a href="../#tour">Tour</a></li>
+        <li><a href="../#apps">Apps</a></li>
+        <li><a href="../#install">Install</a></li>
+        <li><a href="../setup/">Setup app</a></li>
+        <li><a href="./" aria-current="page">Blog</a></li>
+        <li><a class="gh" href="https://github.com/ovidiul/sticky-os" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="post-head wrap narrow">
+    <h1>Blog</h1>
+    <p class="lede">News and notes from {{NAME}}: new versions, how things work, and what comes next.</p>
+  </div>
+
+  <div class="wrap narrow">
+    <ol class="post-list" reversed>
+      <li>
+        <article>
+          <a class="post-card" href="introducing-sticky-os/">
+            <span class="device thumb"><span class="screen"><img src="../shots/home-landscape.png" width="800" height="480" alt=""></span></span>
+            <span class="post-card-text">
+              <time datetime="2026-11-13">13 November 2026</time>
+              <strong>Introducing {{NAME}}: calm apps for a magnetic e-paper board</strong>
+              <span>Why a fridge board needs its own apps, what the twelve apps do, setup from the browser, and a look under the hood: e-paper refreshes, scarce RAM, photos dithered in the browser and updates that roll themselves back.</span>
+            </span>
+          </a>
+        </article>
+      </li>
+    </ol>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="brand">{{NAME}}</span></p>
+    <div>
+      <p>An independent, open-source firmware for the <a href="https://www.seeedstudio.com/sticky/" target="_blank" rel="noopener noreferrer">Seeed reTerminal Sticky</a>. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
+      <p><a href="https://github.com/ovidiul/sticky-os" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://github.com/ovidiul/sticky-os/issues" target="_blank" rel="noopener noreferrer">Issues</a> · <a href="https://github.com/ovidiul/sticky-os/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT licence</a></p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
