@@ -48,7 +48,8 @@ Everything is described in the [guide](docs/guide.md).
 ## Install
 
 You flash Sticky OS once over USB; after that, updates come over WiFi.
-Flashing replaces the firmware the board shipped with (see
+Flashing replaces the firmware the board shipped with; Seeed's
+[official web flasher](https://www.seeedstudio.com/sticky/playground/official-firmware/) puts it back whenever you like (see
 [going back](docs/development.md#going-back-to-seeeds-firmware)).
 
 1. Download `sticky-os-full.bin` (and `sticky-os-full.bin.sha256`) from the
@@ -65,12 +66,13 @@ Flashing replaces the firmware the board shipped with (see
    reliable at `--baud 115200`; faster speeds (460800, 921600) fail part
    way through. At that speed, 1 MB takes about 97 seconds.
 
-4. **Back up the original firmware first (recommended).** This reads the
-   whole 32 MB flash, so it takes about **50 minutes**: start it and leave
-   the cable alone until it finishes. Keep the file somewhere safe; it's the
-   only way back to the exact firmware the board shipped with, and it
-   contains your WiFi password and the device's cloud tokens, so don't share
-   it.
+4. **Optional: back up the original firmware.** You don't need a backup to
+   go back: Seeed's [official web flasher](https://www.seeedstudio.com/sticky/playground/official-firmware/) puts the original firmware
+   (v1.2.0) back at any time, from Chrome or Edge over USB. A backup of your
+   own board is only worth it if you want to keep its exact state, such as
+   its pairing with Seeed's app. It reads the whole 32 MB flash, so it takes
+   about **50 minutes**. It contains your WiFi password and the device's cloud
+   tokens, so keep it private.
 
    **macOS / Linux**
 

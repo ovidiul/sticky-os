@@ -121,8 +121,9 @@ start, and that release is never installed by itself again (NVS
 ## Going back to Seeed's firmware
 
 The board shipped with Seeed's SenseCraft firmware 1.2.0. Flashing this app
-replaces it. To go back, use Seeed's web flasher ("Seeedash Firmware" on the
-playground page above), or write back a full flash backup:
+replaces it. To go back, use Seeed's official web flasher at
+<https://www.seeedstudio.com/sticky/playground/official-firmware/> (Chrome or Edge, USB; it can erase the flash first for a full
+restore), or write back your own full flash backup:
 
     esptool --chip esp32s3 --port /dev/cu.usbmodem… --baud 115200 write-flash 0 factory-32mb.bin
 
