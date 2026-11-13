@@ -82,6 +82,12 @@ static String keysJson() {
       for (size_t j = 0; j < ssids.size(); j++) s += (j ? "," : "") + pj::esc(ssids[j]);
       s += "]";
     }
+    if (k.check == CHK_ICS) {  // the links are secret; how many there are and their labels aren't
+      s += String(",\"max_items\":") + cfg::MAX_ICS + ",\"labels\":[";
+      std::vector<String> labels = cfg::stagedIcsLabels();
+      for (size_t j = 0; j < labels.size(); j++) s += (j ? "," : "") + pj::esc(labels[j]);
+      s += "]";
+    }
     if (!k.secret) s += ",\"value\":" + cfg::stagedPublicJson(k);
     s += "}";
   }

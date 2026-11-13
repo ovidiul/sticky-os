@@ -36,6 +36,9 @@ static const char *timezoneNow() {
   return tz.c_str();
 }
 
+// The same choice as timezoneNow(), without touching the string the clock keeps a pointer to.
+String netTimezone() { return cfg::isSet("device.timezone") || !autoTz[0] ? cfg::str("device.timezone") : String(autoTz); }
+
 void netApplyTimezone() {
   setenv("TZ", timezoneNow(), 1);
   tzset();
@@ -71,7 +74,6 @@ bool weatherConfigured() {
   return cfg::flag("weather.locate") || (cfg::isSet("weather.lat") && cfg::isSet("weather.lon"));
 }
 bool claudeConfigured() { return cfg::str("mqtt.host").length() && cfg::str("claude.topic").length(); }
-bool calendarConfigured() { return cfg::str("influx.url").length() && cfg::str("influx.token").length(); }
 bool telemetryConfigured() { return cfg::flag("telemetry.enabled") && cfg::str("mqtt.host").length(); }
 
 // ---------------------------------------------------------------- TLS

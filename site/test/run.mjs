@@ -9,7 +9,7 @@ import {
   encodeFrames, Reassembler, Client, DeviceError, redactRequest, groupKeys, keyLabel, isAdvanced,
   FRAME_LARGE, FRAME_SMALL, UUIDS, NAME_PREFIX, PROTOCOL, TIMEZONES, zoneForPosix, looksLikePosixTz,
   SerialTransport, SERIAL_FILTERS, WCH_VID, ESPRESSIF_VID, reconnectAfterRestart,
-  wifiFromKey, wifiSetValue, normalizeKey, commitRestarts, GROUPS, KEY_INFO,
+  wifiFromKey, wifiSetValue, normalizeKey, commitRestarts, GROUPS, KEY_INFO, icsSetValue, icsLabels, ICS_MAX, groupOf,
   toGrey, resample, adjust, dither4, pack2, unpack2, cropFor, fitSize, buildPhoto, photoFile, parsePhotoHead, photoTitle, titleFromName,
   uploadPhoto, sha256Hex, toBase64, fromBase64, photoAreas, workSize, PHOTO_AREA, PHOTO_HEAD, PHOTO_KIND, PHOTO_THUMB,
 } from '../src/setup/app.js';
@@ -161,6 +161,42 @@ test('keys: the Sticky key list, grouped; secrets never come back', async () => 
   assert.equal(keys.find((k) => k.key === 'update.auto').value, false, 'updates install by themselves only when asked to');
   // every key the mock reports has a label in the table
   for (const k of keys) assert.ok(KEY_INFO[k.key]?.label, `no label for ${k.key}`);
+});
+
+test('calendar links: the value the app sends; webcal is https; bad links are refused with a reason', () => {
+  assert.equal(icsSetValue([{ label: 'Work', url: ' webcal://p01-calendars.example.com/published/2/abc ' }, { url: '' }, { label: ' ', url: 'https://cal.example.com/x.ics' }]),
+    'Work https://p01-calendars.example.com/published/2/abc\nhttps://cal.example.com/x.ics');
+  assert.equal(icsSetValue([{ label: 'My  family', url: 'https://a.example/x' }]), 'My family https://a.example/x', 'spaces in a label squeezed');
+  assert.equal(icsSetValue([]), '');
+  assert.throws(() => icsSetValue([{ url: 'http://plain.example/x.ics' }]), /https:\/\/ or webcal/);
+  assert.throws(() => icsSetValue([{ url: 'https://a.example/has space' }]), /no spaces/);
+  assert.throws(() => icsSetValue([{ label: 'Orphan', url: '' }]), /paste its link/);
+  assert.throws(() => icsSetValue([{ label: 'x'.repeat(25), url: 'https://a.example/x' }]), /24 characters/);
+  assert.throws(() => icsSetValue(Array.from({ length: ICS_MAX + 1 }, (_, i) => ({ url: `https://a.example/${i}` }))), /At most 3/);
+  assert.deepEqual(icsLabels({ labels: ['Work', '', 7] }), ['Work', '', '']);
+  assert.deepEqual(icsLabels({}), []);
+  assert.equal(KEY_INFO['calendar.ics'].type, 'ics');
+  assert.ok(!isAdvanced({ key: 'calendar.ics' }), 'the links show without opening Advanced');
+});
+
+test('calendar links: the board keeps them secret, lists only the labels, and checks them', async () => {
+  const { transport, client } = rig();
+  await transport.connect();
+  const c = client();
+  const value = icsSetValue([{ label: 'Work', url: 'https://calendar.example.com/ical/TOKEN-SECRET-1/basic.ics' }, { url: 'webcal://p02.example.com/published/TOKEN-SECRET-2' }]);
+  await c.request('set', { key: 'calendar.ics', value });
+  const { keys } = await c.request('keys');
+  const k = keys.find((x) => x.key === 'calendar.ics');
+  assert.deepEqual([k.secret, k.set, 'value' in k], [true, true, false]);
+  assert.deepEqual(icsLabels(k), ['Work', '']);
+  assert.ok(!JSON.stringify(keys).includes('TOKEN-SECRET'), 'no address in the key list');
+  assert.equal(groupOf('calendar.ics'), 'calendar');
+  await assert.rejects(c.request('set', { key: 'calendar.ics', value: 'http://plain.example/x.ics' }), /https/);
+  await assert.rejects(c.request('set', { key: 'calendar.ics', value: ['https://a.example/1', 'https://a.example/2', 'https://a.example/3', 'https://a.example/4'].join('\n') }), /at most 3/);
+  assert.equal((await c.request('set', { key: 'calendar.ics', value: 'webcal://p03.example.com/published/x' })).ok, true);
+  assert.deepEqual(icsLabels((await c.request('keys')).keys.find((x) => x.key === 'calendar.ics')), ['']);
+  await c.request('clear', { key: 'calendar.ics' });
+  assert.equal((await c.request('keys')).keys.find((x) => x.key === 'calendar.ics').set, false);
 });
 
 test('keys: an unknown key still shows, in its own group, labelled from its name', () => {

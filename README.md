@@ -31,7 +31,7 @@ Website and setup app: **<https://sticky-os.space.fast/>**
 |---|---|
 | Clock | Large time and date, indoor temperature and humidity |
 | Weather | Now and five days, and any day's hours (Open-Meteo, no key needed) |
-| Calendar | What's on now and next, the week, the agenda (read from your InfluxDB) |
+| Calendar | What's on now and next, the week, the agenda (your Google, iCloud or Outlook calendar's iCal link; or your InfluxDB) |
 | Notes | Tasks and notes, typed or spoken; the AI sorts them (needs an OpenAI key) |
 | Timer | A countdown that rings even with sounds off |
 | Photos | Photos sent from the setup app, and JPEGs from a microSD card |
@@ -105,12 +105,26 @@ board. In it:
 - **WiFi:** the networks the board may join (you can also add one on the
   board, Settings → WiFi).
 - **Weather:** found from the board's internet address, or a town you set.
+- **Calendar** (optional): paste up to three calendars' secret iCal links,
+  each with a label if you like. The board reads them itself every 30
+  minutes, straight from the calendar service. Where to find the link:
+  - *Google Calendar* (on a computer): Settings → pick the calendar under
+    *Settings for my calendars* → *Integrate calendar* → **Secret address
+    in iCal format**.
+  - *iCloud*: in the Calendar app, the calendar's share button → turn on
+    **Public Calendar** → copy the link (`webcal://…` is fine).
+  - *Outlook / Microsoft 365*: Settings → Calendar → Shared calendars →
+    **Publish a calendar** (*Can view all details*) → copy the ICS link.
+
+  The link is a password to that calendar: the board keeps it and never
+  sends it back. If one leaks, reset it in the calendar service.
 - **OpenAI key** (optional): voice notes, dictation, sorting notes,
   recipes, and AI quizzes and stories. Everything else works without it.
   The requests go from the board straight to OpenAI (or a relay of your
   own), on your OpenAI account.
 - **For power users** (optional): an MQTT broker (Claude usage, telemetry),
-  InfluxDB (the calendar), your own CA, a relay on your network.
+  InfluxDB (calendar events you write there yourself; merged with the
+  links), your own CA, a relay on your network.
 - **Photos:** crop, preview in the board's four greys, and send.
 
 Passwords and keys can be written but never read back. Every setting is
@@ -142,7 +156,8 @@ core 3.3.11 and three libraries:
 [docs/development.md](docs/development.md) has the rest: the hardware, the
 flash layout, how updates and releases work. The setup protocol is in
 [docs/protocol.md](docs/protocol.md); the website and setup app are in
-`site/` (`node test/run.mjs` runs the setup app's tests).
+`site/` (`node test/run.mjs` runs the setup app's tests); the calendar
+parser's tests run on your computer with `firmware/test/ics/run.sh`.
 
 ## Contributing, security, licence
 

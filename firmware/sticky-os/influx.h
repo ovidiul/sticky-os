@@ -7,13 +7,7 @@
 // the calendar's own secret address never reaches the board.
 #pragma once
 #include <Arduino.h>
-#include <vector>
-
-struct CalEvent {
-  String title, where;
-  uint32_t start = 0, end = 0;  // unix seconds; all-day events start at local midnight
-  bool allDay = false;
-};
+#include "calendar.h"
 
 // Sorted by start. False (and why in `error`) if InfluxDB didn't answer.
-bool fetchCalendar(std::vector<CalEvent> &out, String &error);
+bool fetchInflux(CalList &out, String &error);

@@ -14,6 +14,13 @@ Bluetooth (`bleprov.*`): service `edb50001-3985-44d0-a3dd-fd2767d3a6dd`, info
 notification one frame (`provframe.h`), encrypted and authenticated (LE
 Secure Connections, passkey shown on the screen).
 
+`keys` never returns a secret's value. Two secret keys say a little about
+theirs: `wifi.networks` lists its `ssids`, and `calendar.ics` (the calendar
+links) its `labels`, one per link (`""` for none) with `max_items` (3); the
+links themselves only go in, with `set`, as text: one a line, an optional
+label, a space, the address. `webcal://` is stored as `https://`; anything
+but https is refused (except in a `STICKY_ICS_HTTP=1` test build).
+
 **Photos (`info.photos.v` 1).** `info` also has `storage` (`total`, `used`,
 `free` bytes of LittleFS) and `photos`: `count`, `max` (100), `max_bytes`
 (200000, one file), `chunk` (3072) and the areas the Photos app draws in,

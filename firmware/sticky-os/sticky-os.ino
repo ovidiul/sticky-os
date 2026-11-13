@@ -77,6 +77,7 @@
 #include "bleprov.h"
 #include "config.h"
 #include "games.h"
+#include "calendar.h"
 #include "influx.h"
 #include "json.h"
 #include "net.h"
@@ -224,7 +225,7 @@ static ClaudeUsage claude;
 static bool photosReady;  // the card is mounted and has JPEGs
 // Photos: the board's own (photostore.h) first, then the card's.
 static int photoTotal() { return photoStoreCount() + (photosReady ? photosCount() : 0); }
-static std::vector<CalEvent> events;
+static CalList events;  // PSRAM: up to CAL_MAX_EVENTS, from InfluxDB and the calendar links (calendar.h)
 static bool calendarOk;
 static String calendarError;
 // What the network task last heard from each service, under dataLock: a
@@ -1544,7 +1545,7 @@ static int keyboardTap(Keyboard &kb, int x, int y) {
 // a heading for each day (with its weather) and a row for each event.
 // Events come from InfluxDB; they are added on the phone.
 static int calMode = CM_VIEW;
-static std::vector<CalHit> calHits;  // what was drawn where, for taps
+static PsVec<CalHit> calHits;        // what was drawn where, for taps (PSRAM: each holds a copy of its event)
 static CalEvent calOpen;             // the event shown in full
 static int calPages = 1;
 static int calStripPage[7];          // the agenda page each day of the strip starts on; -1: nothing that day
@@ -1601,7 +1602,7 @@ static void pillButton(int x, int y, int w, int h, const char *label, bool fille
 
 // The card: what's on now (and until when), or what's next (and how long
 // until it), in large white type on black.
-static void calCard(int x, int y, int w, int h, const std::vector<CalEvent> &all) {
+static void calCard(int x, int y, int w, int h, const CalList &all) {
   canvas->fillRoundRect(x, y, w, h, 14, INK);
   canvas->setTextColor(PAPER);
   time_t now = time(nullptr), today = calToday(), tomorrow = addDays(today, 1);
@@ -1648,7 +1649,7 @@ static void calCard(int x, int y, int w, int h, const std::vector<CalEvent> &all
       textRight(x + w - pad, y + 31, &FreeSansBold12pt7b, aside.c_str());
     else text(x + pad, y + 58, &FreeSansBold12pt7b, aside.c_str()), ty = y + 100;
   }
-  String title = shown ? (shown->title.length() ? shown->title : String("(No title)"))
+  String title = shown ? (shown->title[0] ? String(shown->title) : String("(No title)"))
                        : String(calendarOk ? "Free" : netUp() ? "No calendar yet" : "No WiFi");
   if (!shown && !calendarOk && calendarError.length()) last = calendarError;
   int lines = h >= 150 ? 2 : 1;
@@ -1674,7 +1675,7 @@ static void calCard(int x, int y, int w, int h, const std::vector<CalEvent> &all
 }
 
 // The week, Monday first: today in a black circle, a dot under days with events.
-static void calStrip(int x, int y, int w, const std::vector<CalEvent> &all) {
+static void calStrip(int x, int y, int w, const CalList &all) {
   calStripX = x, calStripY = y, calStripW = w;
   time_t today = calToday(), first = weekStart(today);
   static const char INITIAL[] = "MTWTFSS";
@@ -1701,7 +1702,7 @@ static void calStrip(int x, int y, int w, const std::vector<CalEvent> &all) {
 // The agenda between top and bottom, from x to right: the coming events,
 // a heading for each day with its weather, today always first (with
 // "Nothing else today" at its end). It is cut into pages.
-static void calAgenda(int x, int right, int top, int bottom, const std::vector<CalEvent> &all) {
+static void calAgenda(int x, int right, int top, int bottom, const CalList &all) {
   struct Line {
     int kind;  // 0 heading, 1 event, 2 "Nothing else today"
     time_t day;
@@ -1781,7 +1782,7 @@ static void calAgenda(int x, int right, int top, int bottom, const std::vector<C
         if (on) canvas->fillRoundRect(x, y + 10, 5, 28, 2, INK);  // on now
         text(x + 14, y + 32, e.allDay ? &FreeSans9pt7b : &FreeSans12pt7b, when);
         int tx = x + 100;
-        text(tx, y + 32, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, e.title.length() ? e.title : String("(No title)"), right - tx).c_str());
+        text(tx, y + 32, &FreeSansBold12pt7b, fitted(&FreeSansBold12pt7b, e.title[0] ? String(e.title) : String("(No title)"), right - tx).c_str());
         calHits.push_back({(int16_t)x, (int16_t)y, (int16_t)(right - x), (int16_t)ROW, e});
       } else if (draw && l.kind == 2) {
         text(x + 14, y + 30, &FreeSans12pt7b, "Nothing else today");
@@ -1806,7 +1807,7 @@ static void drawCalendarView() {
     textCentre(W / 2, H / 2 + 40, &FreeSans12pt7b, "The calendar needs to know the date");
     return;
   }
-  const std::vector<CalEvent> &all = events;
+  const CalList &all = events;
   if (TALL) {
     calCard(12, BODY_Y + 12, W - 24, 118, all);
     calStrip(12, BODY_Y + 142, W - 24, all);
@@ -1819,7 +1820,21 @@ static void drawCalendarView() {
     canvas->drawFastVLine(panel + 14, BODY_Y + 12, H - BODY_Y - 24, INK);
     calAgenda(panel + 34, W - 20, BODY_Y + 2, H - 30, all);
   }
-  if (calendarOk && calendarError.length()) text(12, H - 10, &FreeSans9pt7b, fitted(&FreeSans9pt7b, "Not updated: " + calendarError, TALL ? W - 24 : W / 2 - 24).c_str());
+  if (calendarOk && calendarError.length()) {
+    String why = "Not updated: " + calendarError;
+    if (TALL) {  // beside the page count, when there is one
+      int room = W - 24;
+      if (calPages > 1) room -= textW(&FreeSans9pt7b, "99 / 99   swipe up for more") + 12;
+      text(12, H - 10, &FreeSans9pt7b, fitted(&FreeSans9pt7b, why, room).c_str());
+    } else {  // the left panel's foot, up to three lines
+      std::vector<String> lines = wrapped(&FreeSans9pt7b, why, 300 - 24);
+      int n = min(3, (int)lines.size());
+      for (int i = 0; i < n; i++) {
+        String l = i == n - 1 && (int)lines.size() > n ? fitted(&FreeSans9pt7b, lines[i] + "...", 300 - 24) : lines[i];
+        text(12, H - 10 - (n - 1 - i) * 20, &FreeSans9pt7b, l.c_str());
+      }
+    }
+  }
 }
 
 // ---- one event, full screen
@@ -1829,7 +1844,7 @@ static const int CAL_BUTTON_H = 64;
 static void calDrawDetail() {
   const CalEvent &e = calOpen;
   int y = BODY_Y + 20, width = W - 48;
-  std::vector<String> lines = wrapped(&FreeSansBold18pt7b, e.title.length() ? e.title : String("(No title)"), width);
+  std::vector<String> lines = wrapped(&FreeSansBold18pt7b, e.title[0] ? String(e.title) : String("(No title)"), width);
   for (int i = 0; i < (int)lines.size() && i < 4; i++) {
     text(24, y + 34, &FreeSansBold18pt7b, i == 3 && lines.size() > 4 ? (lines[i] + "...").c_str() : lines[i].c_str());
     y += 44;
@@ -1850,12 +1865,14 @@ static void calDrawDetail() {
   else snprintf(when, sizeof when, "%s, until %s", from, to);
   text(24, y + 26, &FreeSansBold12pt7b, when);
   y += 40;
-  if (e.where.length())
-    for (const String &l : wrapped(&FreeSans12pt7b, e.where, width)) {
+  if (e.where[0])
+    for (const String &l : wrapped(&FreeSans12pt7b, String(e.where), width)) {
       if (y > H - CAL_BUTTON_H - 70) break;
       text(24, y + 26, &FreeSans12pt7b, l.c_str());
       y += 32;
     }
+  String label = calLabel(e.src);  // which calendar, when the links have labels
+  if (label.length() && y <= H - CAL_BUTTON_H - 70) text(24, y + 26, &FreeSans9pt7b, fitted(&FreeSans9pt7b, "Calendar: " + label, width).c_str());
   pillButton(24, H - CAL_BUTTON_H - 16, W - 48, CAL_BUTTON_H, "Back", false, &FreeSansBold12pt7b);
 }
 
@@ -1864,7 +1881,7 @@ static void calDrawDetail() {
 static void drawCalendar() {
   calHits.clear();
   if (!calendarConfigured())
-    return drawSetupHint("Your calendar", "The Calendar reads your events from an InfluxDB bucket you keep filled. It needs the InfluxDB address and a read-only token.");
+    return drawSetupHint("Your calendar", "Paste your calendar's secret iCal link (Google, iCloud, Outlook) in the setup app, under Calendar. Up to three; an InfluxDB bucket works too.");
   if (calMode == CM_DETAIL) return calDrawDetail();
   drawCalendarView();
 }
@@ -1907,11 +1924,11 @@ static bool calendarSwipe(int dx, int dy) {
   return true;
 }
 
-// OK: back to the first page (and out of an open event); fetch if there's nothing.
+// OK: back to the first page (and out of an open event), and read the calendars again.
 static void calendarAction() {
   calMode = CM_VIEW;
   calendarPage = 0;
-  fetchFor(APP_CALENDAR, false);
+  fetchFor(APP_CALENDAR, true);
   render(false);
 }
 
@@ -4975,6 +4992,7 @@ static void netTask(void *) {
         // fetches skip; one asked for (OK in its app) goes ahead, except
         // Claude's: its broker connection (TLS) waits for the job.
         if (aiOnNetwork() && (!fetchAsk[which] || which == APP_CLAUDE)) continue;
+        bool asked = fetchAsk[which];
         fetchAsk[which] = false;
         bool ok = false;
         String error;
@@ -4993,13 +5011,15 @@ static void netTask(void *) {
           claudeError = error;
           xSemaphoreGive(dataLock);
         } else {
-          std::vector<CalEvent> fresh;
-          ok = fetchCalendar(fresh, error);
+          CalList fresh;  // every source's latest, merged; a source that failed keeps its last events
+          bool any = false;
+          ok = calendarFetch(asked, fresh, error, any);
+          int count = fresh.size();
           xSemaphoreTake(dataLock, portMAX_DELAY);
-          if (ok && !demoMode) events = fresh, calendarOk = true;  // demo: keep the made-up events
+          if (any && !demoMode) events.swap(fresh), calendarOk = true;  // demo: keep the made-up events
           calendarError = error;
           xSemaphoreGive(dataLock);
-          Serial.printf("calendar: %d events%s%s\n", (int)fresh.size(), error.length() ? ", error: " : "", error.c_str());
+          Serial.printf("calendar: %d events%s%s\n", count, error.length() ? ", error: " : "", error.c_str());
         }
         fails[i] = ok ? 0 : min<uint8_t>(fails[i] + 1, 6);
         nextAt[i] = millis() + (ok ? EVERY_MIN[i] * 60000UL : backoffMs(fails[i]));
@@ -5352,7 +5372,7 @@ static void tap(int x, int y) {
 // Demo mode, for screenshots that show nothing private: made-up events
 // around now, made-up notes, a made-up town and network. Nothing is saved.
 static void setDemo(bool on) {
-  static std::vector<CalEvent> real;
+  static CalList real;
   static bool active;
   if (on == active) return;
   active = demoMode = on;
@@ -5372,8 +5392,8 @@ static void setDemo(bool on) {
     uint32_t day = mktime(&d);
     auto add = [&](int dayOffset, int hour, int minute, int minutes, const char *title, const char *where, bool allDay = false) {
       CalEvent e;
-      e.title = title;
-      e.where = where;
+      strlcpy(e.title, title, sizeof e.title);
+      strlcpy(e.where, where, sizeof e.where);
       e.start = day + dayOffset * 86400 + hour * 3600 + minute * 60;
       e.end = allDay ? e.start + 86400 : e.start + minutes * 60;
       e.allDay = allDay;
@@ -5381,7 +5401,7 @@ static void setDemo(bool on) {
     };
     uint32_t nowStart = t - 20 * 60;  // something on right now, so the card says NOW
     CalEvent now;
-    now.title = "Deep work: release notes";
+    strlcpy(now.title, "Deep work: release notes", sizeof now.title);
     now.start = nowStart - nowStart % 300;
     now.end = now.start + 90 * 60;
     events.push_back(now);
@@ -5568,6 +5588,12 @@ static void devCommands() {
       screen = SCREEN_APP, app = APP_SETTINGS;
       wifiScanStart();
       settingsOpenPage(SP_WIFI_SCAN);
+    } else if (line == "cal") {  // each calendar source: events, the last read, why it failed (never a link's address)
+      xSemaphoreTake(dataLock, portMAX_DELAY);
+      int n = events.size();
+      xSemaphoreGive(dataLock);
+      Serial.printf("CAL %d events shown\n", n);
+      Serial.print(calStatus());
     } else if (line == "stats") {  // the numbers the fault tests watch
       Serial.printf("stats: up %lu s, reset %d, loop stall %lu ms, stack free loop %u net %u notes %u, heap free %u min %u largest %u, "
                     "psram free %u, tls peak %d lowest block %u, wifi %s, notes %s\n",

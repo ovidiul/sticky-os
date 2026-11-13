@@ -540,8 +540,8 @@ export const GROUPS = [
     blurb: 'Optional. A broker you run, for the Claude usage gauge and for telemetry.' },
   { id: 'claude', title: 'Claude usage', prefixes: ['claude'], optional: true,
     blurb: 'Optional. The gauge shows numbers you publish to your MQTT broker as retained messages.' },
-  { id: 'calendar', title: 'Calendar', prefixes: ['influx', 'calendar'], optional: true,
-    blurb: 'Optional. The Calendar app reads your events from an InfluxDB bucket that you keep filled.' },
+  { id: 'calendar', title: 'Calendar', prefixes: ['calendar', 'influx'], optional: true,
+    blurb: 'Optional. The Calendar app shows your calendars: paste their secret iCal links (Google, iCloud, Outlook). The board reads them every 30 minutes, straight from your calendar service. An InfluxDB bucket you keep filled works too; both are merged.' },
   { id: 'telemetry', title: 'Telemetry', prefixes: ['telemetry'], optional: true,
     blurb: 'Optional. Readings from the sensors and the battery, sent to your own MQTT broker and nowhere else.' },
   { id: 'quotes', title: 'Quote of the Day', prefixes: ['quotes'], optional: true,
@@ -574,6 +574,7 @@ export const KEY_INFO = {
   'mqtt.user':         { label: 'Username' },
   'mqtt.password':     { label: 'Password' },
   'claude.topic':      { label: 'Topic prefix', placeholder: 'e.g. claude/limits', help: 'Where you publish the usage numbers. The board subscribes to everything under it.' },
+  'calendar.ics':      { label: 'Calendar links', type: 'ics', help: 'Up to three. A label (Work, Family) is optional; the board shows it with the event. Each link is a password to that calendar: the board keeps it, and never sends it back.' },
   'influx.url':        { label: 'InfluxDB URL', advanced: true, placeholder: 'e.g. http://influx.local:8086' },
   'influx.org':        { label: 'Organisation', advanced: true },
   'influx.bucket':     { label: 'Bucket', advanced: true },
@@ -615,6 +616,28 @@ export function groupKeys(keys) {
   for (const id of [...by.keys()].sort()) out.push({ id, title: humanize(id), blurb: '', optional: true, keys: by.get(id) });
   return out;
 }
+
+// calendar.ics: up to ICS_MAX links, one a line, "label https://..." or just
+// the address. webcal:// is the same address over https.
+export const ICS_MAX = 3;
+export function icsSetValue(rows) {
+  const lines = [];
+  for (const [i, r] of (rows || []).entries()) {
+    let url = String(r?.url ?? '').trim();
+    const label = String(r?.label ?? '').trim().replace(/\s+/g, ' ');
+    if (!url) { if (label) throw new Error(`Calendar ${i + 1}: paste its link, or clear the label.`); continue; }
+    url = url.replace(/^webcals?:\/\//i, 'https://');
+    if (!/^https:\/\//i.test(url)) throw new Error(`Calendar ${i + 1}: a calendar link starts with https:// or webcal://.`);
+    if (/\s/.test(url)) throw new Error(`Calendar ${i + 1}: a link has no spaces.`);
+    if (url.length > 400) throw new Error(`Calendar ${i + 1}: that link is too long (400 characters at most).`);
+    if (new TextEncoder().encode(label).length > 24) throw new Error(`Calendar ${i + 1}: a label is 24 characters at most.`);
+    lines.push(label ? `${label} ${url}` : url);
+  }
+  if (lines.length > ICS_MAX) throw new Error(`At most ${ICS_MAX} calendars.`);
+  return lines.join('\n');
+}
+// What the board says about the links it has, never their addresses: the labels.
+export function icsLabels(k) { return Array.isArray(k?.labels) ? k.labels.map((l) => (typeof l === 'string' ? l : '')) : []; }
 
 export function isWifiList(k) { return k.key === 'wifi.networks' || ['wifi_list', 'networks'].includes(k.type); }
 
@@ -1443,7 +1466,8 @@ class App {
       edit ? h('span.tag.pending', edit.kind === 'clear' ? 'will be cleared' : 'changed') : null];
     let control, labelFor = id;
 
-    if (k.secret) { control = this.secretControl(k, id, info, describedBy); labelFor = null; }
+    if (type === 'ics') { control = this.icsControl(k, id, describedBy); labelFor = null; }
+    else if (k.secret) { control = this.secretControl(k, id, info, describedBy); labelFor = null; }
     else if (type === 'bool') {
       const v = edit?.kind === 'set' ? edit.value : !!k.value;
       control = h('label.switch', h('input', { id, type: 'checkbox', role: 'switch', checked: v, 'aria-describedby': describedBy, onchange: (e) => this.stage(k, e.target.checked) }),
@@ -1514,6 +1538,61 @@ class App {
       k.set ? h('span.state.set', icon('dot'), 'Set') : h('span.state.unset', 'Not set'),
       h('button.btn.secondary.small', { id: id + '-set', 'aria-describedby': labelled, onclick: () => { this.openSecret = k.key; this.rerender(); } }, k.set ? 'Replace' : 'Set'),
       k.set ? h('button.btn.quiet.small.danger', { id: id + '-clear', 'aria-describedby': labelled, onclick: () => this.stageClear(k) }, 'Clear') : null);
+  }
+
+  // calendar.ics: the links are secret, so this only ever writes them all at once.
+  icsControl(k, id, describedBy) {
+    const edit = this.edits.get(k.key);
+    const labelled = id + '-label';
+    const where = h('details.ics-where',
+      h('summary', 'Where do I find the link?'),
+      h('ul.small',
+        h('li', h('b', 'Google Calendar: '), 'on a computer, Settings → under “Settings for my calendars” pick the calendar → Integrate calendar → ', h('b', 'Secret address in iCal format'), '.'),
+        h('li', h('b', 'iCloud: '), 'in the Calendar app, the calendar’s share button → turn on ', h('b', 'Public Calendar'), ' → copy the link (it starts with webcal://).'),
+        h('li', h('b', 'Outlook / Microsoft 365: '), 'Settings → Calendar → Shared calendars → ', h('b', 'Publish a calendar'), ', “Can view all details” → Publish → copy the ICS link.')),
+      h('p.small.muted', 'Anyone with a secret link can read that calendar. If one leaks, reset it in your calendar service and paste the new one here.'));
+    if (edit?.kind === 'clear') return h('div.secret', h('span.state.unset', 'Will be cleared when you save'));
+    if (edit?.kind === 'set') {
+      const n = edit.value ? edit.value.split('\n').length : 0;
+      return h('div.secret', h('span.state.set', icon('dot'), `${n} calendar link${n === 1 ? '' : 's'} typed, sent when you save`));
+    }
+    if (this.openSecret === k.key) {
+      const rows = [];
+      const inputs = [];
+      for (let i = 0; i < ICS_MAX; i++) {
+        const lab = h('input', { id: `${id}-${i}-name`, type: 'text', placeholder: 'Label (optional)', maxlength: 24, autocomplete: 'off', 'aria-label': `Calendar ${i + 1} label` });
+        const url = h('input', { id: `${id}-${i}-url`, type: 'password', placeholder: 'https://… or webcal://…', autocomplete: 'off', spellcheck: false, 'aria-label': `Calendar ${i + 1} link`, 'aria-describedby': describedBy });
+        inputs.push([lab, url]);
+        rows.push(h('div.ics-row', h('span.prio', { 'aria-hidden': 'true' }, String(i + 1)), lab, url));
+      }
+      const showBtn = h('button.btn.quiet.small', { type: 'button', 'aria-pressed': 'false', onclick: () => {
+        const show = inputs[0][1].type === 'password';
+        for (const [, u] of inputs) u.type = show ? 'text' : 'password';
+        showBtn.textContent = show ? 'Hide links' : 'Show links'; showBtn.setAttribute('aria-pressed', String(show));
+      } }, 'Show links');
+      const ok = () => {
+        let v;
+        try { v = icsSetValue(inputs.map(([l, u]) => ({ label: l.value, url: u.value }))); } catch (e) { return this.fieldError(k, e.message); }
+        if (!v) return this.fieldError(k, 'Paste at least one link, or press Cancel.');
+        this.openSecret = null; this.stage(k, v); queueMicrotask(() => document.getElementById(id + '-set')?.focus());
+      };
+      const cancel = () => { this.openSecret = null; this.rerender(); document.getElementById(id + '-set')?.focus(); };
+      for (const [l, u] of inputs) for (const el of [l, u]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); if (e.key === 'Escape') cancel(); });
+      queueMicrotask(() => inputs[0][1].focus());
+      return h('div.ics', ...rows,
+        h('div.row', showBtn, h('button.btn.secondary.small', { onclick: ok }, 'Use'), h('button.btn.quiet.small', { onclick: cancel }, 'Cancel')),
+        k.set ? h('p.small.muted', 'This replaces every link the board has.') : null, where);
+    }
+    const labels = icsLabels(k);
+    const n = labels.length;
+    const what = !k.set ? 'Not set'
+      : n ? `${n} calendar${n === 1 ? '' : 's'}${labels.some(Boolean) ? ': ' + labels.map((l, i) => l || `Calendar ${i + 1}`).join(', ') : ''}` : 'Set';
+    return h('div.ics-wrap',
+      h('div.secret',
+        k.set ? h('span.state.set', icon('dot'), what) : h('span.state.unset', what),
+        h('button.btn.secondary.small', { id: id + '-set', 'aria-describedby': labelled, onclick: () => { this.openSecret = k.key; this.rerender(); } }, k.set ? 'Replace' : 'Add links'),
+        k.set ? h('button.btn.quiet.small.danger', { id: id + '-clear', 'aria-describedby': labelled, onclick: () => this.stageClear(k) }, 'Clear') : null),
+      where);
   }
 
   tzControl(k, id, describedBy) {

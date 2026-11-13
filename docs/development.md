@@ -37,6 +37,8 @@ Seeed's pages: [docs](https://www.seeedstudio.com/sticky/docs/),
     PORT=/dev/ttyUSB0 ./upload.sh    # or that port
     ./upload.sh build    # build only
     STICKY_OTA_HTTP=1 ./upload.sh    # a test build that takes updates over plain http
+    STICKY_ICS_HTTP=1 ./upload.sh    # a test build that takes plain http calendar links
+    firmware/test/ics/run.sh [feed.ics ...]    # the calendar parser's tests, on this computer
 
 Needs [`arduino-cli`](https://arduino.github.io/arduino-cli/) with the
 `esp32:esp32` core 3.3.11 and the libraries Adafruit GFX 1.12.6 (with
@@ -127,7 +129,7 @@ playground page above), or write back a full flash backup:
 
 `config.*` (the settings store), `provcore.*`, `provjson.*`, `provframe.h`,
 `provserial.*` and `bleprov.*` (the setup protocol and its two transports),
-`influx.*` (the calendar) and `json.*` come from the author's other e-paper
+`influx.*` (the InfluxDB calendar) and `json.*` come from the author's other e-paper
 board's firmware, which speaks the same setup protocol.
 
 ## Making a release

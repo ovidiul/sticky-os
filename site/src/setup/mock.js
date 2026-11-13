@@ -44,6 +44,8 @@ const KEYS = [
   { key: 'mqtt.user', type: 'string', secret: false, max_len: 64 },
   { key: 'mqtt.password', type: 'string', secret: true, max_len: 128 },
   { key: 'claude.topic', type: 'string', secret: false, default: 'claude/limits', max_len: 128 },
+  // calendar.ics is secret (the links hold private tokens): "keys" lists only their labels.
+  { key: 'calendar.ics', type: 'string', secret: true, max_len: 1300, max_items: 3 },
   { key: 'influx.url', type: 'string', secret: false, max_len: 200 },
   { key: 'influx.org', type: 'string', secret: false, max_len: 64 },
   { key: 'influx.bucket', type: 'string', secret: false, max_len: 64 },
@@ -73,6 +75,14 @@ const MAX_MESSAGE = 8192;
 const te = new TextEncoder();
 const td = new TextDecoder('utf-8', { fatal: true });
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+
+// calendar.ics as the firmware reads it: a line a link, the address last.
+function icsLinks(v) {
+  return String(v || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const sp = l.lastIndexOf(' ');
+    return sp < 0 ? { label: '', url: l } : { label: l.slice(0, sp).trim(), url: l.slice(sp + 1) };
+  });
+}
 
 function err(name, message) { const e = new Error(message); e.name = name; return e; }
 
@@ -274,6 +284,7 @@ export class MockDevice {
           const out = { key: x.key, type: x.type, secret: x.secret, set: this.isSet(this.staged, x) };
           for (const f of ['min', 'max', 'max_len', 'max_items', 'options']) if (x[f] != null) out[f] = x[f];
           if (x.type === 'wifi_list') out.ssids = (this.staged[x.key] || []).map((n) => n.ssid);   // never a password
+          else if (x.key === 'calendar.ics') out.labels = icsLinks(this.staged[x.key]).map((l) => l.label);   // never an address
           else if (!x.secret) out.value = this.staged[x.key] ?? x.default ?? null;
           return out;
         }),
@@ -336,6 +347,16 @@ export class MockDevice {
     if (k.type === 'bool') { if (typeof v !== 'boolean') throw new Error(`${k.key}: true or false`); return v; }
     if (typeof v !== 'string') throw new Error(`${k.key}: text`);
     if (k.max_len && te.encode(v).length > k.max_len) throw new Error(`${k.key}: at most ${k.max_len} bytes`);
+    if (k.key === 'calendar.ics') {
+      const links = icsLinks(v).map((l) => ({ ...l, url: l.url.replace(/^webcals?:\/\//i, 'https://') }));
+      if (links.length > k.max_items) throw new Error(`calendar.ics: at most ${k.max_items} links`);
+      for (const l of links) {
+        if (!l.url.startsWith('https://')) throw new Error('calendar.ics: a calendar link starts with https:// (or webcal://)');
+        if (l.url.length < 12 || l.url.length > 400 || /[^\x21-\x7e]/.test(l.url)) throw new Error("calendar.ics: that isn't a calendar link (no spaces; at most 400 characters)");
+        if (te.encode(l.label).length > 24) throw new Error('calendar.ics: a label is at most 24 characters, on one line');
+      }
+      return links.map((l) => (l.label ? `${l.label} ${l.url}` : l.url)).join('\n');
+    }
     if (k.key === 'openai.api_key' && v && !v.startsWith('sk-')) throw new Error("that doesn't look like an OpenAI key (they start with sk-)");
     if (k.key === 'device.timezone' && !/^[<A-Za-z]/.test(v)) throw new Error('not a POSIX TZ string');
     if ((k.key === 'weather.lat' || k.key === 'weather.lon') && v && !/^-?\d{1,3}(\.\d+)?$/.test(v)) throw new Error(`${k.key}: a number like 38.72`);

@@ -33,6 +33,7 @@ static const CfgKey KEYS[] = {
   {"mqtt.user",           "mq_user",     CFG_STR,    false, CHK_TEXT,   0,    64,    "",                       "MQTT user"},
   {"mqtt.password",       "mq_pass",     CFG_STR,    true,  CHK_TEXT,   0,    128,   "",                       "MQTT password"},
   {"claude.topic",        "claude_topic",CFG_STR,    false, CHK_TOPIC,  0,    128,   "",                       "MQTT topic prefix of the Claude usage numbers"},
+  {"calendar.ics",        "cal_ics",     CFG_STR,    true,  CHK_ICS,    0,    1300,  "",                       "Calendar links (iCal), one a line: [label ]https://..."},
   {"influx.url",          "ifx_url",     CFG_STR,    false, CHK_URL,    0,    200,   "",                       "InfluxDB URL (calendar)"},
   {"influx.org",          "ifx_org",     CFG_STR,    false, CHK_TEXT,   0,    64,    "",                       "InfluxDB organisation"},
   {"influx.bucket",       "ifx_bucket",  CFG_STR,    false, CHK_TEXT,   1,    64,    "sensors",                "InfluxDB bucket"},
@@ -354,6 +355,64 @@ static bool printableAscii(const String &s) {
   return true;
 }
 
+// Calendar links in a test build may be plain http (a feed served from a
+// computer); every other build takes https only.
+#ifdef STICKY_ICS_ALLOW_HTTP
+static const bool ICS_HTTP = true;
+#else
+static const bool ICS_HTTP = false;
+#endif
+
+std::vector<IcsLink> icsLinks(const String &value) {
+  std::vector<IcsLink> out;
+  int from = 0, n = value.length();
+  while (from < n) {
+    int nl = value.indexOf('\n', from);
+    if (nl < 0) nl = n;
+    String line = value.substring(from, nl);
+    from = nl + 1;
+    line.trim();
+    if (!line.length()) continue;
+    int sp = line.lastIndexOf(' ');
+    IcsLink l;
+    l.url = sp < 0 ? line : line.substring(sp + 1);
+    l.label = sp < 0 ? String() : line.substring(0, sp);
+    l.label.trim();
+    out.push_back(l);
+  }
+  return out;
+}
+
+// webcal:// is how calendar apps hand out the same https address.
+static String normalizeIcs(const String &v) {
+  String out;
+  for (const IcsLink &l : icsLinks(v)) {
+    String url = l.url;
+    String lower = url.substring(0, 9);
+    lower.toLowerCase();
+    if (lower.startsWith("webcals://")) url = "https://" + url.substring(10);
+    else if (lower.startsWith("webcal://")) url = "https://" + url.substring(9);
+    if (out.length()) out += '\n';
+    out += l.label.length() ? l.label + " " + url : url;
+  }
+  return out;
+}
+
+static bool checkIcs(const String &v, String &err) {
+  std::vector<IcsLink> links = icsLinks(v);
+  if (links.size() > (size_t)MAX_ICS) return err = String("calendar.ics: at most ") + MAX_ICS + " links", false;
+  for (const IcsLink &l : links) {
+    bool https = l.url.startsWith("https://"), http = l.url.startsWith("http://");
+    if (!https && !(ICS_HTTP && http))
+      return err = "calendar.ics: a calendar link starts with https:// (or webcal://)", false;
+    if (l.url.length() < 12 || l.url.length() > 400 || !printableAscii(l.url))
+      return err = "calendar.ics: that isn't a calendar link (no spaces; at most 400 characters)", false;
+    if (l.label.length() > 24 || !validUtf8(l.label, false))
+      return err = "calendar.ics: a label is at most 24 characters, on one line", false;
+  }
+  return true;
+}
+
 static bool checkString(const CfgKey &k, const String &v, String &err) {
   if ((int32_t)v.length() < k.min || (int32_t)v.length() > k.max) {
     err = String(k.name) + ": " + k.min + ".." + k.max + " bytes";
@@ -369,6 +428,7 @@ static bool checkString(const CfgKey &k, const String &v, String &err) {
     case CHK_TZ: ok = printableAscii(v) && (isalpha((unsigned char)v[0]) || v[0] == '<'); break;
     case CHK_NAME: ok = allChars(v, " -_"); break;
     case CHK_TOPIC: ok = allChars(v, "-_./") && v[0] != '/' && v[v.length() - 1] != '/'; break;
+    case CHK_ICS: return checkIcs(v, err);
     case CHK_PEM: ok = v.startsWith("-----BEGIN CERTIFICATE-----") && v.indexOf("-----END CERTIFICATE-----") > 0 &&
                        validUtf8(v, true) && allChars(v, "+/=- \n\r"); break;
   }
@@ -401,6 +461,7 @@ static bool convert(const CfgKey &k, const pj::Val &v, String &text, std::vector
   switch (k.type) {
     case CFG_STR: {
       if (!pj::str(v, text)) return err = String(k.name) + ": expected a string", false;
+      if (k.check == CHK_ICS) text = normalizeIcs(text);
       return checkString(k, text, err);
     }
     case CFG_INT: {
@@ -547,6 +608,20 @@ std::vector<String> stagedSsids() {
   std::vector<String> out;
   Locked l;
   for (const WifiCred &w : staged.wifi) out.push_back(w.ssid);
+  return out;
+}
+
+std::vector<String> stagedIcsLabels() {
+  std::vector<String> out;
+  int i = indexOf("calendar.ics");
+  if (i < 0) return out;
+  String v;
+  {
+    Locked l;
+    if (!staged.set[i]) return out;
+    v = staged.val[i];
+  }
+  for (const IcsLink &l : icsLinks(v)) out.push_back(l.label);
   return out;
 }
 

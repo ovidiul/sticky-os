@@ -25,7 +25,7 @@ static int splitCsv(const String &line, String *f, int max) {
   return n;
 }
 
-bool fetchCalendar(std::vector<CalEvent> &out, String &error) {
+bool fetchInflux(CalList &out, String &error) {
   // The writer fills all slots every 10 min; an empty title is an empty
   // slot. Nothing newer than 1 h means it stopped running.
   String flux =
@@ -38,7 +38,7 @@ bool fetchCalendar(std::vector<CalEvent> &out, String &error) {
   http.setTimeout(10000);
   http.setConnectTimeout(NET_CONNECT_MS);
   String url = cfg::str("influx.url");
-  if (!calendarConfigured()) return error = "No calendar set up.", false;
+  if (!influxConfigured()) return error = "No InfluxDB set up.", false;
   while (url.endsWith("/")) url.remove(url.length() - 1);
   url += "/api/v2/query?org=" + cfg::str("influx.org");
   WiFiClientSecure tls;  // for an https:// URL: your own CA (mqtt.ca) when it's set, else the public ones
@@ -70,7 +70,7 @@ bool fetchCalendar(std::vector<CalEvent> &out, String &error) {
   if (!read) return error = "InfluxDB's reply didn't arrive whole.", false;
 
   // Annotated CSV: "#..." rows, a header row naming the columns, data rows.
-  std::vector<CalEvent> events;
+  CalList events;
   const int MAXF = 16;
   String f[MAXF];
   int idx[5];
@@ -98,14 +98,14 @@ bool fetchCalendar(std::vector<CalEvent> &out, String &error) {
     for (int c = 0; c < 5; c++) need = max(need, idx[c] + 1);
     if (nf < need) continue;  // a short row: skip it rather than read another row's fields
     CalEvent e;
-    e.title = f[idx[0]];
-    e.where = f[idx[1]];
+    calSetText(e.title, sizeof e.title, f[idx[0]]);
+    calSetText(e.where, sizeof e.where, f[idx[1]]);
     e.start = strtoul(f[idx[2]].c_str(), nullptr, 10);
     e.end = strtoul(f[idx[3]].c_str(), nullptr, 10);
     e.allDay = f[idx[4]] == "true";
-    events.push_back(e);
+    if (events.size() < (size_t)CAL_MAX_EVENTS) events.push_back(e);
   }
-  out = events;  // no header: no rows -- no events, or not set up yet
+  out.swap(events);  // no header: no rows -- no events, or not set up yet
   error = "";
   return true;
 }

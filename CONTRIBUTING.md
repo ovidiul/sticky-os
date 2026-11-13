@@ -36,6 +36,7 @@ without touching the board:
 | `fsput <path> <base64>` | writes that file whole (`FSPUT <path> <bytes>`); restart afterwards |
 | `voice <seconds>` | a voice note of that length, without the button; prints `voice: <the answer>` when it's back |
 | `fetch <n>` | fetch now for app n (1 Weather, 2 Calendar, 6 Claude), as OK in it does |
+| `cal` | the Calendar's sources: InfluxDB and each link (its label and host, never the address), how many events, the last read (status, bytes, time, ETag) and why it failed |
 | `wifi scan` | Settings → WiFi → Add network (the network task scans) |
 | `hours <n>` | Weather: the hours of day n of the forecast (0 the first) |
 | `quote new` | the Quote app's *New quote* |
@@ -65,8 +66,13 @@ keeps your own data out of it.
   quiz and scene JSON, the progress file) and `games.ino` how they look and
   take taps (a second tab of the sketch, so it shares the screen helpers);
   `json.*` also
-  `asciiFold()`, for text the fonts can't draw (they are 7-bit); `influx.*` the
-  calendar feed; `photos.*` the microSD photos; `photostore.*` the photos
+  `asciiFold()`, for text the fonts can't draw (they are 7-bit); `calendar.*`
+  the Calendar's sources merged (the links read and streamed into the
+  parser, ETags, errors); `ics.*` the iCalendar parser and the expansion of
+  repeating events and time zones (plain C++, tested on a computer:
+  `firmware/test/ics/run.sh`, optionally with real `.ics` files as
+  arguments); `influx.*` the InfluxDB events; `psalloc.h` a PSRAM allocator
+  for vectors; `photos.*` the microSD photos; `photostore.*` the photos
   sent from the setup app (their file format, and the `photo_*` ops);
   `config.*` and `prov*` the settings and the setup protocol.
 - `src/sticky_drivers/`: Seeed's screen and touch drivers (MIT), unchanged.

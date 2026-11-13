@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{NAME}}: calm apps for the reTerminal Sticky e-paper board</title>
-<meta name="description" content="{{NAME}} is independent, open firmware for the Seeed reTerminal Sticky: a home screen of glanceable e-paper apps with touch, three buttons and voice notes. No account, no cloud required.">
+<meta name="description" content="{{NAME}} is independent, open firmware for the Seeed reTerminal Sticky: a home screen of glanceable e-paper apps (weather, calendar, notes, photos, recipes, games) with touch, three buttons and voice. No account, no cloud required.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ecede8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1d1e20" media="(prefers-color-scheme: dark)">
@@ -24,9 +24,9 @@
         <li><a href="#tour">Tour</a></li>
         <li><a href="#around">Getting around</a></li>
         <li><a href="#apps">Apps</a></li>
+        <li><a href="#install">Install</a></li>
         <li><a href="#hardware">Hardware</a></li>
         <li><a href="#privacy">Privacy</a></li>
-        <li><a href="#soon">Coming soon</a></li>
         <li><a class="gh" href="https://github.com/ovidiul/sticky-os">GitHub</a></li>
       </ul>
     </nav>
@@ -39,13 +39,14 @@
   <div class="wrap">
     <div>
       <h1>A quiet home screen for the fridge door</h1>
-      <p class="lede">{{NAME}} is independent firmware for the Seeed reTerminal Sticky, the 3.97-inch magnetic e-paper board. It gives the board a home screen of apps you read in passing: the time, the weather, your next event, the shopping list.</p>
+      <p class="lede">{{NAME}} is independent firmware for the Seeed reTerminal Sticky, the 3.97-inch magnetic e-paper board. It gives the board a home screen of apps you read in passing: the time, the weather, your next event, the shopping list, a quote for the day.</p>
       <p>E-paper keeps its picture without power, so the screen is always showing something useful and never asks for your attention.</p>
       <div class="actions">
-        <a class="button" href="#tour">Take the tour</a>
+        <a class="button" href="#install">Install {{NAME}}</a>
+        <a href="#tour">Take the tour</a>
         <a href="https://github.com/ovidiul/sticky-os">Source on GitHub</a>
       </div>
-      <p class="note">Runs on the board today. Open source under the MIT licence. <a href="setup/">Setup app (preview)</a>: needs firmware with setup support, coming soon.</p>
+      <p class="note">Version 1.0 is out: a free download, open source under the MIT licence. Once it is on the board, set it up from the <a href="setup/">setup app</a> in your browser.</p>
     </div>
     <figure class="device">
       <div class="screen">
@@ -80,6 +81,7 @@
           <li>The icons are live. The clock’s hands show the time, the calendar shows today’s date, the weather icon shows the sky now, and Claude’s icon is a gauge of this week’s usage.</li>
           <li>Badges count your open tasks and the minutes left on a timer.</li>
           <li>When there are more apps than fit, swipe up for the next row. UP and DOWN move a ring from icon to icon, and OK opens it.</li>
+          <li>Games is a folder: it opens its own grid of seven games.</li>
           <li>Choose which apps appear in Settings.</li>
         </ul>
       </div>
@@ -87,7 +89,7 @@
         <figure class="device portrait">
           <div class="screen">
             <div class="slot"><strong>Screenshot coming</strong>Home, held upright</div>
-            <img src="shots/home-portrait.png" width="480" height="800" alt="Home held upright: the widget above a grid of three app icons across"
+            <img src="shots/home-portrait.png" width="480" height="800" alt="Home held upright: the time, the weather and the next event above a grid of app icons, three across, ending with Quote, Recipes and Games"
                  onload="this.previousElementSibling.remove()" onerror="this.remove()">
           </div>
           <figcaption>Upright: three icons across</figcaption>
@@ -123,11 +125,38 @@
 
     <article class="feature">
       <div class="copy">
-        <h3>Calendar <span class="tag">New</span></h3>
+        <h3>Weather, hour by hour <span class="tag">New</span></h3>
+        <p>Weather shows now and the next five days. Tap a day, or now for today, to see its hours under the day’s high and low.</p>
+        <ul>
+          <li>Held sideways, the day is a chart: the temperature as a line, the chance of rain as bars beneath it, then the sky, the hour and the wind.</li>
+          <li>Held upright, it is a row for each hour, with the rain in millimetres when some is expected. Swipe up for later hours.</li>
+          <li>Swipe sideways, or use the arrows, for the next or the previous day.</li>
+        </ul>
+        <p>Forecasts come from Open-Meteo, which needs no account and no key.</p>
+      </div>
+      <div class="shots">
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/weather-hours.png" width="800" height="480" loading="lazy" alt="Today’s hours in landscape: a temperature line with a mark for now, rain chances as bars, and the sky, hour and wind every three hours">
+          </div>
+          <figcaption>A day as a chart</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/weather-hours-portrait.png" width="480" height="800" loading="lazy" alt="Today’s hours held upright: a row per hour with the sky, temperature, chance of rain and wind">
+          </div>
+          <figcaption>Or a row for each hour</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature flip">
+      <div class="copy">
+        <h3>Calendar</h3>
         <p>A calm agenda you can read from across the kitchen. A Now and Next card at the top counts down to what comes next. Below it, a strip of the week puts a dot on each busy day, and the coming events are listed under a heading for each day.</p>
         <ul>
           <li>Tap an event to see its details.</li>
-          <li>Add events from your phone as usual. The board shows them through a calendar feed you run.</li>
+          <li>Add events from your phone as usual. Paste your calendar’s secret iCal link (Google, iCloud or Outlook, up to three) in the setup app, and the board reads it every 30 minutes, straight from your calendar service.</li>
         </ul>
       </div>
       <div class="shots">
@@ -150,7 +179,50 @@
       </div>
     </article>
 
+    <article class="feature">
+      <div class="copy">
+        <h3>Quote of the Day <span class="tag">New</span></h3>
+        <p>A new quote every morning, as large as the screen allows, with the author beneath. Tap <em>New quote</em>, or press OK, for another whenever you like.</p>
+        <p>The day’s quote comes from ZenQuotes, which needs no key, and is kept on the board so it still shows without WiFi. Offline, or if you switch the online quotes off, the board picks from its own list of public-domain quotes and says so in a quiet line underneath.</p>
+      </div>
+      <div class="shots">
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/quote.png" width="800" height="480" loading="lazy" alt="Quote of the Day in landscape: a John Tukey quote in large italic, with a New quote button">
+          </div>
+          <figcaption>Large italic type, sized to fit</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/quote-portrait.png" width="480" height="800" loading="lazy" alt="Quote of the Day held upright: a Mark Twain quote from the board’s own list">
+          </div>
+          <figcaption>From the board’s own list, offline</figcaption>
+        </figure>
+      </div>
+    </article>
+
     <article class="feature flip">
+      <div class="copy">
+        <h3>Photos, sent from your browser <span class="tag">New</span></h3>
+        <p>The board keeps its own album of up to 100 photos and shows a new one every ten minutes. Tap, swipe up or press OK for the next. JPEGs in a <code>photos</code> folder on a microSD card follow after.</p>
+        <p>You add photos in the setup app’s Photos page. Pick or drop a picture, drag a frame to choose what shows, set the brightness and contrast, and see it in the board’s four greys before you send it. Your browser does the cropping and dithering, so the board only has to copy the picture to the screen.</p>
+        <p class="credit">Photo: Ansel Adams, <cite>The Tetons and the Snake River</cite> (1942), Grand Teton National Park. U.S. National Park Service, public domain, via the National Archives.</p>
+      </div>
+      <div class="shots">
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/photo.png" width="800" height="480" loading="lazy" alt="The Photos app in landscape: Ansel Adams’ photograph of the Teton Range above the Snake River, in four greys">
+          </div>
+          <figcaption>On the board, in four greys</figcaption>
+        </figure>
+        <figure class="browser">
+          <img src="shots/setup-photos.webp" width="740" height="910" loading="lazy" alt="The setup app’s Photos page: the photograph with a yellow crop frame, a choice of landscape or portrait, and sliders for zoom, brightness and contrast">
+          <figcaption>Cropping it in the setup app</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
       <div class="copy">
         <h3>Notes and to-dos, spoken or typed</h3>
         <p>In Notes, tap the microphone, say what you need, and tap it again. Or hold OK while you speak and let go. An AI model turns what you said into tasks and notes.</p>
@@ -182,7 +254,96 @@
       </div>
     </article>
 
+    <article class="feature flip">
+      <div class="copy">
+        <h3>Recipes, by asking <span class="tag">New</span></h3>
+        <p>Tap <em>Say a dish</em> and ask for what you’d like to cook, say “a quick vegetarian pasta for two”, or type it. A recipe opens a moment later: the time, how many it serves, the ingredients, the steps and a few tips, in type you can read from the hob.</p>
+        <ul>
+          <li>Tap an ingredient to tick it off while you cook.</li>
+          <li>Recipes are saved on the board, newest first, up to 30.</li>
+        </ul>
+        <p>Recipes needs your own OpenAI key, set in the setup app. The request goes from the board straight to OpenAI, on your account.</p>
+      </div>
+      <div class="shots two-portrait">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/recipes.png" width="480" height="800" loading="lazy" alt="The Recipes list: Say a dish and Type it buttons above four saved recipes">
+          </div>
+          <figcaption>Say a dish, or type it</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/recipe.png" width="480" height="800" loading="lazy" alt="A recipe for lemon, pea and basil pasta: 20 minutes, serves 2, with ingredients to tick">
+          </div>
+          <figcaption>Ingredients to tick as you go</figcaption>
+        </figure>
+      </div>
+    </article>
+
     <article class="feature">
+      <div class="copy">
+        <h3>Games <span class="tag">New</span></h3>
+        <p>Games is a folder on Home with seven games made for e-paper: turn by turn, with no hurry.</p>
+        <ul>
+          <li><strong>2048</strong>: swipe to slide and merge the tiles.</li>
+          <li><strong>Memory</strong>: find the pairs in as few moves as you can.</li>
+          <li><strong>Maths Quest</strong>: ten levels, from sums to fractions, with stars and hints, never the answer.</li>
+          <li><strong>Daily maths</strong>: five questions a day and a streak.</li>
+          <li><strong>Quiz</strong>: eight questions on a theme, or one you type.</li>
+          <li><strong>Adventure</strong>: a story where you choose what happens next.</li>
+          <li><strong>X and O</strong>: against the board, from Easy to unbeatable.</li>
+        </ul>
+        <p>With your OpenAI key, Quiz and Adventure write new questions and stories on any theme. Without it they play the board’s own questions and its built-in story, and say why.</p>
+      </div>
+      <div class="shots two-portrait">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/games.png" width="480" height="800" loading="lazy" alt="The Games folder: icons for 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure and X and O, each with a line of progress">
+          </div>
+          <figcaption>Each game shows how you’re doing</figcaption>
+        </figure>
+      </div>
+      <div class="gallery">
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-2048.png" width="800" height="480" loading="lazy" alt="2048: a board of numbered tiles with the score and best score">
+          </div>
+          <figcaption>2048</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-memory.png" width="800" height="480" loading="lazy" alt="Memory: a grid of cards, some turned over in matched pairs">
+          </div>
+          <figcaption>Memory</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-maths.png" width="800" height="480" loading="lazy" alt="Maths Quest: a map of ten levels with stars on the ones passed">
+          </div>
+          <figcaption>Maths Quest</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-quiz.png" width="800" height="480" loading="lazy" alt="Quiz: a space question answered right, Saturn, with a fact about its rings">
+          </div>
+          <figcaption>Quiz</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-adventure.png" width="800" height="480" loading="lazy" alt="Adventure: the first scene of a story by the sea, with two choices">
+          </div>
+          <figcaption>Adventure</figcaption>
+        </figure>
+        <figure class="device">
+          <div class="screen">
+            <img src="shots/game-xo.png" width="800" height="480" loading="lazy" alt="X and O: a game in progress against the board on Hard">
+          </div>
+          <figcaption>X and O</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature flip">
       <div class="copy">
         <h3>A kitchen timer that can’t be missed</h3>
         <p>Tap a length: 1, 3, 5, 10 or 25 minutes, or an hour. While it runs, the digits show the time left and when it will ring, with buttons for one more minute, five more, or Stop.</p>
@@ -204,7 +365,7 @@
       </div>
     </article>
 
-    <article class="feature flip">
+    <article class="feature">
       <div class="copy">
         <h3>Turn it any way</h3>
         <p>The motion sensor knows how the board is held. Stick it on the fridge upright or lay it across a shelf, either way up, and the picture turns to match.</p>
@@ -226,7 +387,7 @@
       </div>
     </article>
 
-    <article class="feature">
+    <article class="feature flip">
       <div class="copy">
         <h3>Settings that read like a phone’s</h3>
         <p>Settings is a list under plain headings: Display, Sound and power, Connections, Apps and System. Each row has an icon, a title and a line saying what it is set to.</p>
@@ -248,6 +409,28 @@
             <img src="shots/settings-system.png" width="480" height="800" alt="The last page of Settings: System, About this device">
           </div>
           <figcaption>Page 2 of 2</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
+      <div class="copy">
+        <h3>Software updates over WiFi <span class="tag">New</span></h3>
+        <p>You flash {{NAME}} over USB once. After that, Settings → Software update checks the project’s GitHub releases once a day, or when you tap <em>Check now</em>, and says when a new version is out. Tap <em>Install</em> and the board fetches it, checks it and restarts.</p>
+        <p>If a new version doesn’t start properly, the board goes back to the one before. Installing by itself is off unless you turn it on.</p>
+      </div>
+      <div class="shots two-portrait">
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/update.png" width="480" height="800" loading="lazy" alt="Software update: this version, a newer one available, and Install and Check now buttons">
+          </div>
+          <figcaption>Settings → Software update</figcaption>
+        </figure>
+        <figure class="device portrait">
+          <div class="screen">
+            <img src="shots/update-progress.png" width="480" height="800" loading="lazy" alt="Updating: a progress bar at 70% and a reminder not to unplug the board">
+          </div>
+          <figcaption>It restarts by itself when done</figcaption>
         </figure>
       </div>
     </article>
@@ -280,29 +463,53 @@
 <section id="apps" aria-labelledby="apps-h">
   <div class="wrap">
     <div class="split">
-      <h2 id="apps-h">Nine apps, all made for e-paper</h2>
+      <h2 id="apps-h">Twelve apps, all made for e-paper</h2>
       <p class="intro">Each one shows a single thing clearly and redraws only when something changed.</p>
     </div>
     <ul class="apps">
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
         <h3>Clock</h3><p>The time in large type, the date, and the room’s temperature and humidity from the built-in sensor.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.5"/><path d="M9 2.5v1.5M2.5 9H4M4.4 4.4l1 1M13.6 4.4l-1 1"/><path d="M8 20h9a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A2.8 2.8 0 0 0 8 20z"/></svg></span>
-        <h3>Weather</h3><p>Now and the next five days, from Open-Meteo. The board works out which town it is in by itself.</p></li>
+        <h3>Weather</h3><p>Now, the next five days, and any day hour by hour, from Open-Meteo. The board works out which town it is in by itself, or you set one.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h3M8 17h6"/></svg></span>
-        <h3>Calendar <span class="tag">New</span></h3><p>Now and Next with a countdown, the week with its busy days marked, and an agenda by day.</p></li>
+        <h3>Calendar</h3><p>Now and Next with a countdown, the week with its busy days marked, and an agenda by day.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="5" height="5" rx="1"/><path d="M4.8 7l1.2 1.3 2-2.6"/><rect x="3.5" y="14.5" width="5" height="5" rx="1"/><path d="M11.5 7h9M11.5 17h7"/></svg></span>
         <h3>Notes</h3><p>Tasks and notes by voice or keyboard. Each item opens full screen.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/></svg></span>
         <h3>Timer</h3><p>Countdowns from a minute to an hour, with the minutes left on its Home icon.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3.5 17l5.5-6 4 4.5 2.5-2.5 5 4.5"/><circle cx="16" cy="9" r="1.6"/></svg></span>
-        <h3>Photos</h3><p>Photos you send from the setup app, cropped and turned into four greys in your browser, and pictures from a microSD card. A new one every ten minutes.</p></li>
+        <h3>Photos <span class="tag">New</span></h3><p>Up to 100 photos you send from the setup app, cropped and turned into four greys in your browser, then pictures from a microSD card. A new one every ten minutes.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 7c-3 1-5 3.5-5 7a3 3 0 1 0 3-3"/><path d="M20 7c-3 1-5 3.5-5 7a3 3 0 1 0 3-3"/></svg></span>
+        <h3>Quote <span class="tag">New</span></h3><p>Quote of the Day in large italic type, and another whenever you ask. Works offline from its own list.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14.5a4 4 0 0 1-.6-7.9 5 5 0 0 1 9.2-1 4 4 0 0 1 2.4 7.6"/><path d="M7 12.5v7h10v-7M7 16.5h10"/></svg></span>
+        <h3>Recipes <span class="tag">New</span></h3><p>Say or type a dish and get a recipe with ingredients to tick. Needs your own OpenAI key.</p></li>
+      <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 14v6M14 17h6"/></svg></span>
+        <h3>Games <span class="tag">New</span></h3><p>A folder of seven: 2048, Memory, Maths Quest, Daily maths, Quiz, Adventure, and X and O.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a8.5 8.5 0 0 1 17 0"/><path d="M12 17l4.5-5.5"/><circle cx="12" cy="17" r="1.3"/></svg></span>
         <h3>Claude Code usage</h3><p>This week’s usage as a gauge, read from an MQTT feed you publish.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.3"/><circle cx="15" cy="17" r="2.3"/></svg></span>
-        <h3>Settings</h3><p>Display, sound and power, connections, apps and system, with switches and pages of choices.</p></li>
+        <h3>Settings</h3><p>Display, sound and power, connections, apps and system, with switches, pages of choices and software updates.</p></li>
       <li><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6"/></svg></span>
         <h3>About</h3><p>Firmware, memory, battery, sensors, card and network, in large type.</p></li>
     </ul>
+  </div>
+</section>
+
+<section id="install" aria-labelledby="install-h">
+  <div class="wrap">
+    <div class="split">
+      <h2 id="install-h">Install it</h2>
+      <p class="intro">{{NAME}} 1.0 is a free download. You flash it once over a USB cable; after that it updates itself over WiFi when you say so.</p>
+    </div>
+    <ol class="stickies steps">
+      <li><h3>1. Download</h3><p>Get <code>sticky-os-full.bin</code> from the latest release on GitHub.</p>
+        <p class="sticky-link"><a href="https://github.com/ovidiul/sticky-os/releases/latest">Latest release</a></p></li>
+      <li><h3>2. Flash</h3><p>Plug the board into a computer and write the file with esptool, or with Espressif’s ESP Tool in Chrome or Edge. The README has the commands for macOS, Linux and Windows.</p>
+        <p class="sticky-link"><a href="https://github.com/ovidiul/sticky-os#install">How to flash</a></p></li>
+      <li><h3>3. Set up</h3><p>The board restarts into {{NAME}} and shows a QR code. Open the setup app in Chrome or Edge, connect over USB or Bluetooth, and add your WiFi.</p>
+        <p class="sticky-link"><a href="setup/">Open the setup app</a> · <a href="setup/?demo">try the demo</a></p></li>
+    </ol>
+    <p class="aside">Flashing replaces the firmware the board shipped with. The README explains how to keep a copy and go back. Your WiFi and keys are stored on the board, never built into the firmware.</p>
   </div>
 </section>
 
@@ -317,7 +524,7 @@
       <dt>Touch</dt><dd>Capacitive (GT911)</dd>
       <dt>Buttons</dt><dd>Three on the top edge: OK, UP and DOWN. OK wakes the board from sleep</dd>
       <dt>Chip</dt><dd>ESP32-S3 with 8 MB PSRAM and 32 MB flash, WiFi</dd>
-      <dt>Microphone</dt><dd>One PDM microphone, for voice notes</dd>
+      <dt>Microphone</dt><dd>One PDM microphone, for voice notes, dictation and recipes</dd>
       <dt>Sound</dt><dd>A buzzer for the timer and button clicks. There is no speaker</dd>
       <dt>Sensors</dt><dd>Temperature and humidity, motion (for rotation), battery gauge</dd>
       <dt>Storage</dt><dd>About 20 MB of the flash for notes and up to 100 photos; a microSD card slot for more photos</dd>
@@ -332,9 +539,9 @@
     <h2 id="privacy-h">Yours, not a service’s</h2>
     <ul class="points">
       <li><strong>No account, no cloud required</strong>There is nothing to sign up for and no company server in the middle. The board fetches the time and the weather directly, from public services that need no key.</li>
-      <li><strong>Plain about what leaves the board</strong>Once after each start it asks ip-api.com which town its internet address is in. Weather requests to Open-Meteo carry that town’s coordinates. That is all, unless you turn on the extras below.</li>
-      <li><strong>AI is optional and on your terms</strong>Voice notes go to an AI service with your own key, or through a relay you run. Without it, every other app works the same.</li>
-      <li><strong>Your lists stay on the board</strong>Notes, to-dos and your settings are kept in the board’s own flash.</li>
+      <li><strong>Plain about what leaves the board</strong>Once after each start it asks ip-api.com which town its internet address is in, unless you set the town yourself. Weather requests to Open-Meteo carry that town’s coordinates. Quote of the Day asks ZenQuotes for the day’s quote; you can turn that off. Once a day it asks GitHub whether a new version is out. That is all, unless you turn on the extras below.</li>
+      <li><strong>AI is optional and on your terms</strong>Voice notes, recipes, and new quizzes and stories go to OpenAI with your own key, or through a relay you run. Without it, every other app works the same, and the games play their built-in questions and story.</li>
+      <li><strong>Your things stay on the board</strong>Notes, to-dos, recipes, photos, game scores and your settings are kept in the board’s own flash.</li>
       <li><strong>Telemetry only to your own broker</strong>Optional readings from the sensors and battery go to an MQTT broker you choose, and nowhere else.</li>
       <li><strong>Open</strong>The whole firmware, this website and the setup app are <a href="https://github.com/ovidiul/sticky-os">on GitHub</a> under the MIT licence. The screen and touch drivers come from Seeed’s MIT-licensed examples.</li>
     </ul>
@@ -356,21 +563,6 @@
   </div>
 </section>
 
-<section id="soon" aria-labelledby="soon-h">
-  <div class="wrap">
-    <div class="split">
-      <h2 id="soon-h">Coming soon</h2>
-      <p class="intro">None of these is ready yet. Here is what they will do.</p>
-    </div>
-    <ul class="soon">
-      <li><h3>A setup app in your browser</h3><p>Plug the board in with a USB cable, or connect over Bluetooth, and set it up from a web page in Chrome or Edge. Later, set it up from any phone on a page the board serves from its own WiFi hotspot. Your WiFi and keys stay on the board, never built into the firmware.</p>
-        <p class="soon-link"><a href="setup/">Setup app (preview)</a>: needs firmware with setup support, coming soon. <a href="setup/?demo">Try the demo</a>.</p></li>
-      <li><h3>Quote of the Day</h3><p>A new quote every morning, as large as the screen allows, with a button for another one whenever you like.</p></li>
-      <li><h3>A game</h3><p>Something to play that suits e-paper: turn by turn, with no hurry.</p></li>
-    </ul>
-  </div>
-</section>
-
 </main>
 
 <footer>
@@ -378,7 +570,7 @@
     <p><span class="brand">{{NAME}}</span></p>
     <div>
       <p>An independent, open-source firmware for the Seeed reTerminal Sticky. Not made by or affiliated with Seeed Studio. Seeed and reTerminal are trademarks of their owners, named here only to say which board this firmware runs on.</p>
-      <p>Every screenshot is the board’s own picture, captured as drawn.</p>
+      <p>Every screenshot is the board’s own picture, captured as drawn, with demo data. The photo is Ansel Adams’ <cite>The Tetons and the Snake River</cite> (1942), public domain.</p>
       <p><a href="https://github.com/ovidiul/sticky-os">GitHub</a> · <a href="https://github.com/ovidiul/sticky-os/issues">Issues</a> · <a href="https://github.com/ovidiul/sticky-os/blob/main/LICENSE">MIT licence</a></p>
     </div>
   </div>

@@ -19,6 +19,8 @@ jobs:
           arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli lib install "Adafruit BusIO@1.17.4" "Adafruit GFX Library@1.12.6" "PubSubClient@2.8"
+      - name: Calendar parser tests
+        run: firmware/test/ics/run.sh
       - name: Build
         run: ./upload.sh build
       - name: Size

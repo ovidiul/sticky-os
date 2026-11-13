@@ -200,6 +200,22 @@ section { padding: clamp(3.5rem, 8vw, 6.5rem) 0; border-top: 2px solid var(--ink
   .shots .device + .device { margin-top: 2.5rem; }
 }
 
+/* A page of the setup app, shown in a plain browser-like frame */
+.browser { margin: 0; position: relative; flex: .62 1 0; min-width: 0; border: 2px solid var(--ink); border-radius: .7rem;
+  padding-top: 1.3rem; background: var(--paper-2) radial-gradient(circle, var(--graphite) 0 3px, transparent 3.5px) .6rem .35rem / .95rem .6rem repeat-x;
+  overflow: visible; }
+.browser img { border-top: 2px solid var(--ink); border-radius: 0 0 .5rem .5rem; background: #ecede8; }
+.browser figcaption { position: absolute; left: 0; right: 0; top: 100%; padding-top: .7rem;
+  color: var(--graphite); font-size: .9rem; line-height: 1.35; }
+@media (max-width: 34rem) { .shots .browser { flex: none; width: 88%; align-self: center; margin-top: 2.5rem; } }
+
+/* The rest of a feature, full width under it: a credit line, or a row of games */
+.feature .credit { color: var(--graphite); font-size: .9rem; }
+.gallery { grid-column: 1 / -1; order: 3; display: grid; gap: 3.6rem clamp(1rem, 3vw, 2rem); padding-bottom: 2.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
+@media (min-width: 56rem) { .gallery { grid-template-columns: repeat(3, 1fr); } }
+.gallery .device { --r: .9rem; --bez: clamp(8px, 1vw, 12px); }
+
 .tag { display: inline-block; vertical-align: .35em; margin-left: .5rem; font: 700 .8rem/1 var(--text);
   letter-spacing: .02em; background: var(--mark); color: var(--mark-ink); padding: .35rem .55rem .3rem;
   border-radius: .3rem; transform: rotate(-2deg); }
@@ -242,18 +258,20 @@ kbd { font: 700 .78rem/1 var(--text); display: inline-block; min-width: 2.3em; t
 .points li { max-width: 60ch; }
 .points strong { display: block; font: 700 1.2rem/1.25 var(--display); font-stretch: 90%; margin-bottom: .25rem; }
 
-/* Coming soon: three sticky notes, the only place the yellow fills an area */
-.soon { list-style: none; padding: 0; margin: 3rem 0 0; display: grid; gap: 1.5rem;
+/* Install: three sticky notes, the only place the yellow fills an area */
+.stickies { list-style: none; padding: 0; margin: 3rem 0 0; display: grid; gap: 1.5rem;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
-.soon li { background: var(--mark); color: var(--mark-ink); padding: 1.6rem 1.5rem 1.8rem; border-radius: 2px;
+.stickies li { background: var(--mark); color: var(--mark-ink); padding: 1.6rem 1.5rem 1.8rem; border-radius: 2px;
   box-shadow: 0 10px 18px -12px rgba(0,0,0,.5); }
-.soon li:nth-child(1) { transform: rotate(-1.2deg); }
-.soon li:nth-child(2) { transform: rotate(.8deg); }
-.soon li:nth-child(3) { transform: rotate(-.5deg); }
-.soon h3 { font-size: 1.5rem; margin-bottom: .6rem; }
-.soon p { margin: 0; }
-.soon p.soon-link { margin-top: .9rem; font-weight: 700; }
-.soon a { text-decoration-color: currentColor; text-decoration-thickness: 1px; text-underline-offset: .15em; }
+.stickies li:nth-child(1) { transform: rotate(-1.2deg); }
+.stickies li:nth-child(2) { transform: rotate(.8deg); }
+.stickies li:nth-child(3) { transform: rotate(-.5deg); }
+.stickies h3 { font-size: 1.5rem; margin-bottom: .6rem; }
+.stickies p { margin: 0; }
+.stickies p.sticky-link { margin-top: .9rem; font-weight: 700; }
+.stickies a { text-decoration-color: currentColor; text-decoration-thickness: 1px; text-underline-offset: .15em; }
+.aside { color: var(--graphite); margin-top: 2.25rem; font-size: .98rem; }
+code { font: 600 .9em/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 
 /* Footer */
 footer { border-top: 2px solid var(--ink); padding: 2.5rem 0 3.5rem; color: var(--graphite); font-size: .95rem; }

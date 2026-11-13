@@ -32,6 +32,7 @@ enum CfgCheck : uint8_t {
   CHK_NAME,    // letters, digits, space, - and _ (the Bluetooth name)
   CHK_TOPIC,   // an MQTT topic prefix: letters, digits, - _ . and /, no wildcards
   CHK_PEM,     // -----BEGIN CERTIFICATE----- ... (ASCII, newlines allowed)
+  CHK_ICS,     // calendar links: up to 3 lines, "[label ]https://..." (webcal:// is taken as https://)
 };
 
 struct CfgKey {
@@ -47,6 +48,12 @@ struct CfgKey {
 
 struct WifiCred {
   String ssid, pass;
+};
+
+// One calendar link of calendar.ics: an optional short label, and the
+// address (https; it holds the calendar's private token, so it's a secret).
+struct IcsLink {
+  String label, url;
 };
 
 namespace cfg {
@@ -99,6 +106,11 @@ bool stagedDirty();
 // secret keys always give "null".
 String stagedPublicJson(const CfgKey &k);
 std::vector<String> stagedSsids();  // names only
+std::vector<String> stagedIcsLabels();  // calendar.ics: each link's label ("" for none), never the address
+
+// calendar.ics's value as links: one a line, the address last ("Work https://...").
+static const int MAX_ICS = 3;
+std::vector<IcsLink> icsLinks(const String &value);
 bool commit(String &err);           // writes, flips, starts the trial; live values change at the next boot
 
 // A setting the board changes from its own screen, one that takes effect

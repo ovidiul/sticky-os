@@ -61,9 +61,11 @@ look for the data:
   with the reason (*The broker refused the login.*, *Can't reach the
   broker.*). The forecast's days follow their dates, so after midnight
   yesterday drops off instead of being called *Today*.
-- **Calendar** keeps the events it had, with *Not updated: InfluxDB
-  rejected the token.* (or *Can't reach InfluxDB.*, *...didn't answer in
-  time.*) at the foot.
+- **Calendar** keeps the events it had from each calendar, with *Not
+  updated: Work: Calendar link rejected (404) - check the address.* (or
+  *Couldn't reach calendar.google.com.*, *...didn't answer in time.*,
+  *Calendar feed too big*, *That link isn't a calendar*, *InfluxDB rejected
+  the token.*) at the foot. One calendar failing doesn't hide the others.
 - **Notes:** while a voice or typed note is with the AI the strip says
   *Thinking... tap to cancel*, and the board stays usable (buttons, other
   apps, the timer, the setup app). A tap on the strip or OK cancels. When
@@ -95,7 +97,8 @@ then 1, 2, 4 and every 5 minutes.
 | `mqtt.ca` | Your own CA certificate (PEM), for your broker, relay and InfluxDB; empty: the public CAs | none |
 | `mqtt.user`, `mqtt.password` | The broker login (the password is secret) | none |
 | `claude.topic` | The topic prefix you publish the Claude usage numbers under | none |
-| `influx.url`, `influx.org`, `influx.bucket`, `influx.token` | The InfluxDB bucket the Calendar reads (the token is secret; read-only is enough) | none, none, `sensors`, none |
+| `calendar.ics` | Up to 3 calendar links (a calendar's secret iCal address, `https://` or `webcal://`), one a line, each with an optional label first (`Work https://...`). Secret: the setup app only ever sees the labels. Read every 30 minutes (see [Calendar links](#calendar-links)) | none |
+| `influx.url`, `influx.org`, `influx.bucket`, `influx.token` | An InfluxDB bucket the Calendar also reads, merged with the links (the token is secret; read-only is enough) | none, none, `sensors`, none |
 | `telemetry.enabled` | Send readings (memory, battery, climate...) to your broker, `sensor/<id>/...` | off |
 | `update.auto` | Install a new release by itself (see [Updates](../README.md#updates)). Releases aren't signed yet, so it starts off | off |
 | `update.url` | The release feed, for a fork: a `releases/latest` JSON like GitHub's. Empty: GitHub. Must be https (plain `http://` only in a test build, see [development](development.md)) | none |
@@ -106,6 +109,35 @@ The board's own preferences (rotation, sound, temperature unit, sleep,
 hidden apps and games) stay in the board's Settings. *Erase settings* in the setup app
 (factory reset) erases them too, with the Bluetooth bonds; the notes,
 tasks and photos stay.
+
+## Calendar links
+
+`calendar.ics` holds up to three calendars' secret iCal addresses (the
+setup app's **Calendar** section explains where Google Calendar, iCloud and
+Outlook show them). The board reads each one itself, every 30 minutes and
+when you press OK in the Calendar, over https checked against the public
+CAs, straight from the calendar service: nothing goes through anyone else.
+
+- It reads the feed as it arrives and keeps only what falls in the window
+  (yesterday to 30 days ahead), so a calendar with years of history (a
+  Google feed can be several MB) is fine; a feed over 8 MB, or one that
+  takes more than 2 minutes to arrive, is refused.
+- Repeating events are worked out on the board: daily, weekly, monthly and
+  yearly, every few days or weeks, a number of times or until a date, on
+  given weekdays ("the 2nd Tuesday", "the last Friday", "the last
+  weekday"), given days of the month or months, with dates left out and
+  single instances moved or cancelled. Times follow the calendar's own
+  time zone (the feed's VTIMEZONE, or the zone's name), so a 9:00 meeting
+  stays at 9:00 across a change to or from summer time. Events with
+  *Cancelled* status don't show.
+- Not read: repeats by week number or day of the year, or by the hour
+  (these show their first time only), and "this and all future" changes.
+- When the server says the feed hasn't changed (ETag, Last-Modified), the
+  board keeps what it has. A calendar that fails keeps its last events and
+  is tried again after 1, 2, 4... up to 30 minutes.
+- With InfluxDB set up too, both are merged; the same event in two
+  calendars shows once. At most 200 events, the soonest first. Tap an
+  event to see which calendar it's from (its label).
 
 ## A relay
 
@@ -166,7 +198,7 @@ timer adds an hourglass and its minutes left when there is room.
 |---|---|---|
 | Clock | Large time, the date, indoor temperature and humidity | Internet time; the board's SHT40 |
 | Weather | Now, and five days. Tap a day (or now, for today) for its hours, under the day's *High* and *Low* (beside the day in landscape, on a line of their own in portrait): in landscape a chart, the temperature as a line with its value every three hours, the chance of rain as bars under it (filled when rain is expected), the sky, the hour and the wind beneath; in portrait a row for each hour (sky, temperature, chance and amount of rain, wind), a page at a time. Swipe sideways (or the arrows) for the next or previous day; Back, OK, or a swipe down returns | api.open-meteo.com for the town found from the internet address, or the one in the settings (the coordinates are sent with each request). A day's hours are fetched when you open them and kept until the board restarts (fetched again after 3 hours) |
-| Calendar | Read only, made to be read from across the room. A black card on top: the event on now (until when, time left, what's next today), or what's next ("Free until 14:00", "in 25 min"; "Nothing else today" and tomorrow's first event in the evening). Under it the week, Monday first, today in a black circle and a dot under days with events still to come. Then the agenda: a heading for each day with that day's forecast high / low (five days), a row for each event (start time and title; a bar marks one that's on now), and "Nothing else today" at the end of today. Events are added on the phone | Measurement `calendar` in your InfluxDB bucket (see `influx.h` for what writes it); the forecast from Weather |
+| Calendar | Read only, made to be read from across the room. A black card on top: the event on now (until when, time left, what's next today), or what's next ("Free until 14:00", "in 25 min"; "Nothing else today" and tomorrow's first event in the evening). Under it the week, Monday first, today in a black circle and a dot under days with events still to come. Then the agenda: a heading for each day with that day's forecast high / low (five days), a row for each event (start time and title; a bar marks one that's on now), and "Nothing else today" at the end of today. Events are added on the phone | Your calendars' secret iCal links (`calendar.ics`, up to three: Google, iCloud, Outlook...; see [Calendar links](#calendar-links)), and measurement `calendar` in your InfluxDB bucket if you set one up (see `influx.h` for what writes it); the forecast from Weather |
 | Notes | Tasks with tick boxes, notes, and the AI's last line | Kept in the board's flash; changed by voice or by typing on the on-screen keyboard |
 | Timer | A countdown in large digits: 1, 3, 5, 10, 25 minutes or an hour; +1 and +5 minutes and Stop while it runs | The board. It rings even with button sounds off, and opens itself when the time is up. The board doesn't sleep while it runs |
 | Photos | Two albums, one after the other: the board's own photos, then the microSD card's JPEGs, in four greys, a new one every 10 minutes. The status bar says which album and where in it ("Board photos 2 / 5"). With none, it says how to add some | Photos sent from the setup app, kept in the board's flash (up to 100); the card's `photos` folder (baseline JPEG; progressive ones are refused) |
@@ -210,9 +242,10 @@ Controls inside an app:
   (or a swipe down on the first page) for the list. A recipe left open stays
   open when you go to another app and come back.
 - **Calendar:** swipe up / down for the agenda's pages ("1 / 17" at the foot);
-  tap an event (or the card) to see all of it: title, day, time, place; Back,
-  a swipe up or down, or OK closes it. Tap a day in the week strip to jump
-  to its page. OK goes back to today. Swipe left / right still changes app.
+  tap an event (or the card) to see all of it: title, day, time, place and,
+  with labelled links, which calendar; Back, a swipe up or down, or OK
+  closes it. Tap a day in the week strip to jump to its page. OK goes back
+  to today and reads the calendars again. Swipe left / right still changes app.
   Portrait stacks the card, the week and the agenda; landscape puts the card
   and the week on the left and the agenda on the right.
 - **The on-screen keyboard** (Notes, and WiFi passwords): QWERTY with shift (one

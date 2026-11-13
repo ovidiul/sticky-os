@@ -6,6 +6,7 @@
 #   PORT=/dev/ttyUSB0 ./upload.sh    flash to that port
 #   STICKY_VERSION=v0.2.0 ./upload.sh build    a release build (CI only: refused while the seed headers exist)
 #   STICKY_OTA_HTTP=1 ./upload.sh    a test build that takes updates over plain http
+#   STICKY_ICS_HTTP=1 ./upload.sh    a test build that takes plain http calendar links (a feed on a computer)
 # The flash layout is firmware/sticky-os/partitions.csv (the whole 32 MB):
 # the core copies a partitions.csv from the sketch folder over the scheme's,
 # and PartitionScheme=custom with upload.maximum_size checks against the 6 MB app slot.
@@ -29,6 +30,11 @@ FLAGS="-DSTICKY_COMMIT=$COMMIT -DSTICKY_VERSION=$VERSION"
 if [ "${STICKY_OTA_HTTP:-}" = 1 ]; then
   [[ "$VERSION" == v* ]] && { echo "STICKY_OTA_HTTP is for test builds, not $VERSION" >&2; exit 1; }
   FLAGS="$FLAGS -DSTICKY_OTA_ALLOW_HTTP"
+fi
+# STICKY_ICS_HTTP=1: calendar links may be plain http (a test feed on a computer). Never in a release.
+if [ "${STICKY_ICS_HTTP:-}" = 1 ]; then
+  [[ "$VERSION" == v* ]] && { echo "STICKY_ICS_HTTP is for test builds, not $VERSION" >&2; exit 1; }
+  FLAGS="$FLAGS -DSTICKY_ICS_ALLOW_HTTP"
 fi
 arduino-cli compile --fqbn "$FQBN" --build-path build \
   --build-property "compiler.cpp.extra_flags=$FLAGS" \

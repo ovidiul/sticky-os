@@ -214,6 +214,14 @@ input:disabled { opacity: .55; }
 
 .secret { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .secret.open input { max-width: 22rem; flex: 1 1 14rem; }
+/* calendar links: a label and a link a row */
+.ics { display: grid; gap: .5rem; }
+.ics-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.ics-row input[type="text"] { flex: 0 1 10rem; min-width: 7rem; }
+.ics-row input:not([type="text"]) { flex: 1 1 16rem; }
+.ics-wrap { display: grid; gap: .5rem; }
+.ics-where summary { cursor: pointer; font-size: .9rem; }
+.ics-where ul { margin: .4rem 0; padding-left: 1.2rem; display: grid; gap: .3rem; }
 .state { display: inline-flex; align-items: center; gap: .35rem; font-weight: 700; margin-right: .3rem; }
 .state.set { color: var(--good); }
 .state.set svg.ic { fill: currentColor; stroke: none; width: .9rem; height: .9rem; }

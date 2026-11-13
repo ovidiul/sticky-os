@@ -57,11 +57,11 @@ int netBars();            // 0 (no link) to 4
 int rssiBars(int rssi);   // the same for a signal strength in dBm
 bool timeKnown();
 void netApplyTimezone();  // device.timezone, for the clock and localtime()
+String netTimezone();     // the POSIX TZ in use (device.timezone, or the weather's); network task only
 
 // What each app needs set up (the settings), for its "set this up" screen.
 bool weatherConfigured();   // weather.locate, or weather.lat and weather.lon
 bool claudeConfigured();    // mqtt.host and claude.topic
-bool calendarConfigured();  // influx.url and influx.token
 bool telemetryConfigured(); // telemetry.enabled and mqtt.host
 
 bool weatherLocate();          // finds the town from the internet address; false if it can't
