@@ -59,36 +59,58 @@ Flashing replaces the firmware the board shipped with (see
        pip install esptool            # macOS, Linux
        py -m pip install esptool      # Windows
 
-3. Plug the board into your computer with a USB-C cable that carries data,
-   and flash it at address 0x0:
+3. Plug the board into your computer with a USB-C cable that carries data.
+
+   **Use 115200 baud for everything.** The board's USB-serial chip is only
+   reliable at `--baud 115200`; faster speeds (460800, 921600) fail part
+   way through. At that speed, 1 MB takes about 97 seconds.
+
+4. **Back up the original firmware first (recommended).** This reads the
+   whole 32 MB flash, so it takes about **50 minutes**: start it and leave
+   the cable alone until it finishes. Keep the file somewhere safe; it's the
+   only way back to the exact firmware the board shipped with, and it
+   contains your WiFi password and the device's cloud tokens, so don't share
+   it.
+
+   **macOS / Linux**
+
+       esptool --chip esp32s3 --baud 115200 read-flash 0 0x2000000 factory-32mb.bin
+
+   **Windows**
+
+       py -m esptool --chip esp32s3 --port COM5 --baud 115200 read-flash 0 0x2000000 factory-32mb.bin
+
+   The file should be exactly 33,554,432 bytes. If it stops part way, run it
+   again.
+
+5. Flash Sticky OS at address 0x0. The file is about 2 MB, so this takes
+   about **3 to 4 minutes**:
 
    **macOS / Linux**
 
        shasum -a 256 -c sticky-os-full.bin.sha256      # should say OK
-       esptool --chip esp32s3 --baud 460800 write-flash 0x0 sticky-os-full.bin
+       esptool --chip esp32s3 --baud 115200 write-flash 0x0 sticky-os-full.bin
 
    **Windows** (the port is the board's COM port in Device Manager)
 
        certutil -hashfile sticky-os-full.bin SHA256    # compare with the .sha256 file
-       py -m esptool --chip esp32s3 --port COM5 --baud 460800 write-flash 0x0 sticky-os-full.bin
+       py -m esptool --chip esp32s3 --port COM5 --baud 115200 write-flash 0x0 sticky-os-full.bin
 
    esptool finds the port by itself on macOS and Linux; add
    `--port /dev/ttyACM0` (or `/dev/cu.usbmodem…`) if you have several.
 
 The board restarts into Sticky OS when it's done. esptool puts the board in
-download mode by itself through the USB-C port. If it can't connect: try
-another cable or USB port, lower the speed (`--baud 115200`), close any
-other program that has the port open (a serial monitor, the setup app), and
-on Linux add yourself to the `dialout` group.
-
-Want a copy of the original firmware first? Before step 3:
-`esptool --chip esp32s3 read-flash 0 0x2000000 factory-32mb.bin` (32 MB,
-a few minutes).
+download mode by itself through the USB-C port. If it can't connect or stops
+part way: make sure you used `--baud 115200`, try another cable or USB port,
+close any other program that has the port open (a serial monitor, the setup
+app, a browser tab with ESP Tool), and on Linux add yourself to the
+`dialout` group.
 
 **In the browser instead:** Espressif's
 [ESP Tool](https://espressif.github.io/esptool-js/) runs in Chrome or Edge
-on a computer: *Connect*, pick the board's port, set the flash address to
-`0x0`, choose `sticky-os-full.bin`, *Program*.
+on a computer: set the baud rate to **115200** before *Connect*, pick the
+board's port, set the flash address to `0x0`, choose `sticky-os-full.bin`,
+*Program*.
 
 ## Set up
 

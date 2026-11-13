@@ -88,8 +88,9 @@ with the serial command `fsget /notes.txt`, and put them back with
 **Releases.** Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: it
 builds that version in CI (never with the git-ignored seed files) and
 publishes `sticky-os.bin` (the app, for updates), `sticky-os.bin.sha256`, and
-`sticky-os-full.bin` for a first flash: `esptool --chip esp32s3 write_flash
-0x0 sticky-os-full.bin`. The tag's message becomes the release notes. A tag
+`sticky-os-full.bin` for a first flash: `esptool --chip esp32s3 --baud 115200
+write-flash 0x0 sticky-os-full.bin` (115200 is the only reliable speed on
+this board's USB-serial chip). The tag's message becomes the release notes. A tag
 with a suffix (`v1.1.0-rc1`) is published as a pre-release: boards ask for
 `releases/latest`, which never returns one, and a pre-release sorts before
 its release (`v1.1.0-rc1` < `v1.1.0`), as in semver. Tags must match
@@ -123,7 +124,10 @@ The board shipped with Seeed's SenseCraft firmware 1.2.0. Flashing this app
 replaces it. To go back, use Seeed's web flasher ("Seeedash Firmware" on the
 playground page above), or write back a full flash backup:
 
-    esptool --port /dev/cu.usbmodem… --baud 460800 write_flash 0 factory-32mb.bin
+    esptool --chip esp32s3 --port /dev/cu.usbmodem… --baud 115200 write-flash 0 factory-32mb.bin
+
+Use 115200 baud: faster speeds fail part way on this board's USB-serial
+chip. Writing the full 32 MB back takes about 50 minutes, like the backup.
 
 ## Where the setup code comes from
 
